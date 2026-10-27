@@ -1,0 +1,235 @@
+<!doctype html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#0f1114" />
+    <link
+      rel="icon"
+      href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='12' fill='%23d4141f'/%3E%3Ctext x='32' y='41' font-family='Arial,sans-serif' font-size='19' font-weight='700' fill='white' text-anchor='middle'%3ESENAI%3C/text%3E%3C/svg%3E"
+    />
+    <title>SENAI Caxias do Sul · Automação Pneumática e Robótica · 3D</title>
+    <link rel="stylesheet" href="/src/styles.css" />
+  </head>
+  <body>
+    <div id="app">
+      <canvas id="scene"></canvas>
+      <div id="labels" class="label-layer"></div>
+
+      <header class="topbar">
+        <div class="brand glass">
+          <div class="brand-mark">
+            <span>SENAI</span>
+            <i></i>
+          </div>
+          <div class="brand-text">
+            <h1>Automação Pneumática e Robótica</h1>
+            <p>Caxias do Sul · gêmeo digital do setor</p>
+          </div>
+        </div>
+
+        <div class="topbar-right">
+          <div id="status-pill" class="status glass">
+            <span class="dot"></span>
+            <span id="status-text">Linha em produção</span>
+          </div>
+          <button id="ui-toggle" class="icon-btn glass" title="Ocultar interface (H)" aria-label="Ocultar interface">
+            <svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="1.7">
+              <path d="M3 12h18M3 6h18M3 18h18" />
+            </svg>
+          </button>
+        </div>
+      </header>
+
+      <aside id="toolbar" class="toolbar glass">
+        <div class="group">
+          <span class="group-label">Câmeras</span>
+          <button class="view-btn is-active" data-view="overview">Galpão</button>
+          <button class="view-btn" data-view="line">Linha MPS</button>
+          <button class="view-btn" data-view="robot">Célula robótica</button>
+          <button class="view-btn" data-view="desks">Bancadas</button>
+          <button class="view-btn" data-view="top">Planta</button>
+        </div>
+        <div class="group">
+          <span class="group-label">Camadas</span>
+          <label class="switch">
+            <input type="checkbox" id="toggle-labels" checked />
+            <span class="track"><i></i></span>
+            <span class="switch-text">Rótulos</span>
+          </label>
+          <label class="switch">
+            <input type="checkbox" id="toggle-sim" checked />
+            <span class="track"><i></i></span>
+            <span class="switch-text">Simulação</span>
+          </label>
+          <label class="switch">
+            <input type="checkbox" id="toggle-lights" checked />
+            <span class="track"><i></i></span>
+            <span class="switch-text">Iluminação</span>
+          </label>
+        </div>
+      </aside>
+
+      <div class="stats glass">
+        <div class="stat">
+          <span>Linha</span>
+          <strong>MPS 01 — 10</strong>
+        </div>
+        <div class="sep"></div>
+        <div class="stat">
+          <span>Ciclo</span>
+          <strong>6,8 s</strong>
+        </div>
+        <div class="sep"></div>
+        <div class="stat">
+          <span>Peças</span>
+          <strong id="kpi-parts">000</strong>
+        </div>
+      </div>
+
+      <div class="hint glass">
+        <span><b>Arraste</b> para orbitar</span>
+        <span><b>Scroll</b> para zoom</span>
+        <span><b>Clique</b> em uma estação</span>
+      </div>
+
+      <div class="nav-dock glass">
+        <button id="vr-btn" class="nav-btn" disabled title="Entrar no modo imersivo">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round">
+            <path d="M3.2 8.4h17.6a1.2 1.2 0 0 1 1.2 1.2v4.3a1.2 1.2 0 0 1-1.2 1.2h-4.1a1 1 0 0 1-.8-.4l-1.7-2.1a1.6 1.6 0 0 0-1.2-.6h-2a1.6 1.6 0 0 0-1.2.6l-1.7 2.1a1 1 0 0 1-.8.4H3.2A1.2 1.2 0 0 1 2 13.9v-4.3a1.2 1.2 0 0 1 1.2-1.2Z" />
+            <path d="M2.4 9.6h19.2" stroke-opacity=".35" />
+          </svg>
+          <span id="vr-btn-text">Entrar em VR</span>
+        </button>
+        <i class="dock-sep"></i>
+        <button id="walk-btn" class="nav-btn" title="Andar pelo galpão com WASD">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="13.1" cy="4.6" r="1.7" />
+            <path d="M12.6 8.4 11 12.1l2.1 2.2 1.2 4.3M12.9 8.9l2.2 1 2 2.3 2.1 1M11.3 12.4l-1.8 2.5-2.2 1.4M13.1 14.3l-1.9 2.4-1.2 3.3" />
+          </svg>
+          <span id="walk-btn-text">Caminhar</span>
+        </button>
+      </div>
+
+      <div class="walk-hint glass">
+        <span><b>WASD</b> andar</span>
+        <span><b>Arrastar</b> olhar</span>
+        <span><b>Shift</b> correr</span>
+        <span><b>Esc</b> sair</span>
+      </div>
+
+      <aside id="info-panel" class="info-panel glass" aria-hidden="true">
+        <button id="panel-close" class="panel-close" aria-label="Fechar">
+          <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8">
+            <path d="M6 6l12 12M18 6L6 18" />
+          </svg>
+        </button>
+        <div class="panel-kicker" id="panel-kicker">Estação</div>
+        <h2 id="panel-title">—</h2>
+        <p id="panel-desc">—</p>
+        <div class="panel-tech" id="panel-tech"></div>
+        <div class="panel-footer">
+          <button id="panel-focus" class="focus-btn">Focar estação</button>
+          <button id="panel-program" class="focus-btn focus-btn--alt" hidden>Programar robô</button>
+        </div>
+      </aside>
+
+      <aside id="program-panel" class="program-panel glass" aria-hidden="true">
+        <button id="program-close" class="panel-close" aria-label="Fechar painel do robô">
+          <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8">
+            <path d="M6 6l12 12M18 6L6 18" />
+          </svg>
+        </button>
+        <div class="pg-top">
+          <div class="panel-kicker">Célula robótica · Teach pendant</div>
+          <h2>Programa do robô</h2>
+
+          <div id="program-status" class="program-status is-manual">
+            <span class="pg-dot"></span>
+            <span id="program-status-text">Manual · mova o robô e ensine os pontos</span>
+          </div>
+        </div>
+
+        <div class="pg-scroll">
+        <section class="pg-section">
+          <div class="pg-head">
+            <span>Ponta da garra</span>
+            <strong id="tip-readout">X 0,00 · Y 0,00 · Z 0,00</strong>
+          </div>
+          <div class="jog-pad">
+            <button class="pg-jog" data-jog="-1,0,0" title="Mover em −X">X−</button>
+            <button class="pg-jog" data-jog="1,0,0" title="Mover em +X">X+</button>
+            <button class="pg-jog" data-jog="0,-1,0" title="Mover em −Y">Y−</button>
+            <button class="pg-jog" data-jog="0,1,0" title="Mover em +Y">Y+</button>
+            <button class="pg-jog" data-jog="0,0,-1" title="Mover em −Z">Z−</button>
+            <button class="pg-jog" data-jog="0,0,1" title="Mover em +Z">Z+</button>
+          </div>
+          <div class="pg-row">
+            <label class="pg-select">Passo
+              <select id="jog-step">
+                <option value="0.01">1 cm</option>
+                <option value="0.05" selected>5 cm</option>
+                <option value="0.1">10 cm</option>
+              </select>
+            </label>
+            <button id="grip-btn" class="pg-ghost">Fechar garra</button>
+          </div>
+          <button id="teach-btn" class="pg-primary">Ensinar ponto atual</button>
+          <div class="pg-points-head">
+            <span>Pontos salvos</span>
+            <div class="pg-points-actions">
+              <button id="points-save" class="pg-mini is-accent" title="Salvar pontos e sequência neste navegador">
+                Salvar
+              </button>
+              <button id="points-reset" class="pg-mini" title="Recarregar os pontos padrão">Padrões</button>
+            </div>
+          </div>
+          <div id="point-list" class="pg-points"></div>
+          <div id="points-state" class="pg-save-state">Carregando…</div>
+        </section>
+
+        <section class="pg-section">
+          <div class="pg-head">
+            <span>Sequência</span>
+            <span id="program-count" class="pg-count">0 passos</span>
+          </div>
+          <div class="pg-palette">
+            <button data-step="home">Início</button>
+            <button data-step="grip">Fechar garra</button>
+            <button data-step="release">Abrir garra</button>
+            <button data-step="wait">Esperar 0,5 s</button>
+          </div>
+          <ol id="program-list" class="pg-steps"></ol>
+          <p id="program-empty" class="pg-empty">
+            Toque em um ponto ensinado para inserir um movimento.
+          </p>
+        </section>
+        </div>
+
+        <div class="pg-controls">
+          <button id="program-run" class="pg-run">Executar programa</button>
+          <button id="program-stop" class="pg-ghost" disabled>Parar</button>
+          <label class="pg-speed">
+            Velocidade <span id="speed-value">1,0×</span>
+            <input type="range" id="program-speed" min="0.3" max="1.5" step="0.1" value="1" />
+          </label>
+          <label class="pg-check">
+            <input type="checkbox" id="program-loop" />
+            <span>Repetir em ciclo</span>
+          </label>
+          <button id="program-clear" class="pg-link" disabled>Limpar sequência</button>
+        </div>
+      </aside>
+
+      <div id="loader">
+        <div class="loader-inner">
+          <div class="loader-brand">SENAI<span>·</span>MECATRÔNICA</div>
+          <div class="loader-bar"><i></i></div>
+          <p>Montando o setor de automação…</p>
+        </div>
+      </div>
+    </div>
+
+    <script type="module" src="/src/main.js"></script>
+  </body>
+</html>
