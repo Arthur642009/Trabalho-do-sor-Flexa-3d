@@ -9,13 +9,17 @@
       href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='12' fill='%23d4141f'/%3E%3Ctext x='32' y='41' font-family='Arial,sans-serif' font-size='19' font-weight='700' fill='white' text-anchor='middle'%3ESENAI%3C/text%3E%3C/svg%3E"
     />
     <title>SENAI Caxias do Sul · Automação Pneumática e Robótica · 3D</title>
-    <script type="module" crossorigin src="/assets/index-DMb0BMNj.js"></script>
-    <link rel="stylesheet" crossorigin href="/assets/index-DDHfvF-a.css">
+    <script type="module" crossorigin src="/assets/index-Cc0i2X_o.js"></script>
+    <link rel="stylesheet" crossorigin href="/assets/index-CzXD51oL.css">
   </head>
   <body>
     <div id="app">
       <canvas id="scene"></canvas>
       <div id="labels" class="label-layer"></div>
+      <div id="crosshair" aria-hidden="true">
+        <span class="ch-ring"></span>
+        <em class="ch-hint"></em>
+      </div>
 
       <header class="topbar">
         <div class="brand glass">
@@ -92,6 +96,8 @@
         <span><b>Arraste</b> para orbitar</span>
         <span><b>Scroll</b> para zoom</span>
         <span><b>Clique</b> em uma estação</span>
+        <span><b>Telas HMI</b> programam as bancadas</span>
+        <span><b>Monitores</b> abrem o Dev Lab</span>
       </div>
 
       <div class="nav-dock glass">
@@ -114,7 +120,8 @@
 
       <div class="walk-hint glass">
         <span><b>WASD</b> andar</span>
-        <span><b>Arrastar</b> olhar</span>
+        <span><b>Mouse</b> olhar</span>
+        <span><b>E</b> interagir</span>
         <span><b>Shift</b> correr</span>
         <span><b>Esc</b> sair</span>
       </div>
@@ -131,6 +138,7 @@
         <div class="panel-tech" id="panel-tech"></div>
         <div class="panel-footer">
           <button id="panel-focus" class="focus-btn">Focar estação</button>
+          <button id="panel-blocks" class="focus-btn focus-btn--alt" hidden>Programar bancada</button>
           <button id="panel-program" class="focus-btn focus-btn--alt" hidden>Programar robô</button>
         </div>
       </aside>

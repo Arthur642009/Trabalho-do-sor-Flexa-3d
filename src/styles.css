@@ -422,8 +422,72 @@ body.walk-mode #scene {
   cursor: grab;
 }
 
-body.walk-mode #scene:active {
-  cursor: grabbing;
+body.fps-look #scene {
+  cursor: none;
+}
+
+body.xr-active #scene {
+  cursor: none;
+}
+
+/* ---------- first-person crosshair ---------- */
+
+#crosshair {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  display: none;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  pointer-events: none;
+  z-index: 8;
+}
+
+body.fps-look #crosshair {
+  display: flex;
+}
+
+.ch-ring {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  border: 2px solid rgba(255, 255, 255, 0.7);
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.45), 0 0 12px rgba(0, 0, 0, 0.45);
+  transition: width 0.16s ease, height 0.16s ease, border-color 0.16s ease, box-shadow 0.16s ease;
+}
+
+#crosshair.is-target .ch-ring {
+  width: 15px;
+  height: 15px;
+  border-color: #ff6a5c;
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.45), 0 0 14px rgba(255, 90, 74, 0.6);
+}
+
+.ch-hint {
+  padding: 4px 10px;
+  border-radius: 999px;
+  border: 1px solid var(--stroke);
+  background: rgba(14, 16, 19, 0.76);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  font-style: normal;
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  color: var(--text);
+  white-space: nowrap;
+  opacity: 0;
+  transition: opacity 0.16s ease;
+}
+
+.ch-hint:empty {
+  display: none;
+}
+
+#crosshair.is-target .ch-hint {
+  opacity: 1;
 }
 
 body.xr-active .topbar,
@@ -436,10 +500,6 @@ body.xr-active .program-panel,
 body.xr-active .label-layer {
   opacity: 0 !important;
   pointer-events: none !important;
-}
-
-body.xr-active #scene {
-  cursor: none;
 }
 
 /* ---------- info panel ---------- */

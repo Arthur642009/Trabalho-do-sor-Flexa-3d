@@ -1,6 +1,7 @@
 import * as THREE from "three";
 import { box, cyl, hose } from "./utils.js";
 import { createTray, createPallet } from "./parts.js";
+import { createHmi } from "./hmi.js";
 
 const L1 = 0.5; // shoulder -> elbow
 const L2 = 0.46; // elbow -> wrist
@@ -20,7 +21,7 @@ const ABOVE_PLACE_Y = 1.3;
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
 const smooth = (t) => (t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2);
 
-export function buildRobot(scene, mats) {
+export function buildRobot(scene, mats, renderer) {
   const root = new THREE.Group();
   root.name = "robot-cell";
   root.position.set(-2.0, BASE_Y, 0);
@@ -159,6 +160,22 @@ export function buildRobot(scene, mats) {
   curtain.position.set(-0.34, 0.86, 0.03);
   frame.add(curtain);
   root.add(frame);
+
+  /* ---------------- teach pendant touchscreen ---------------- */
+  const hmi = createHmi(mats, renderer, "CÉLULA", "ROBÔ 6 EIXOS", 1.18, {
+    x: 0.452,
+    y: 0.07,
+    rotY: Math.PI / 2,
+    tag: "HMI · PENDANT",
+    rows: [
+      ["#2f6fd0", "ensinar pontos", 1],
+      ["#2f9e63", "executar sequência", 0.95],
+      ["#c99a2e", "jog manual", 0.8],
+    ],
+  });
+  root.add(hmi.root);
+  root.add(box(0.14, 0.035, 0.05, mats.aluDark, 0.39, -0.102, 1.18));
+  root.add(box(0.05, 0.12, 0.06, mats.aluDark, 0.34, -0.102, 1.18));
 
   // suspended cable from the ceiling
   root.add(hose([-0.2, 3.6, -0.4], [0.0, 0.35, -0.12], 0.012, mats.blueTube, 0.15, 0.05));
@@ -644,6 +661,7 @@ export function buildRobot(scene, mats) {
     group: root,
     hitbox,
     info,
+    hmi,
     update,
     cycle: CYCLE,
     labelPos: new THREE.Vector3(-2.0, 2.55, 0.1),

@@ -11,8 +11,9 @@ function desk(mats, length = 4, depth = 0.75, height = 0.74) {
   g.add(top);
 
   const legMat = mats.aluDark;
-  for (const sz of [-1, 1]) {
-    const z = sz * (length / 2 - 0.12);
+  const bays = Math.max(1, Math.round(length / 1.7));
+  for (let i = 0; i <= bays; i++) {
+    const z = -length / 2 + 0.12 + (i * (length - 0.24)) / bays;
     for (const sx of [-1, 1]) {
       g.add(box(0.05, height - 0.04, 0.05, legMat, sx * (depth / 2 - 0.08), (height - 0.04) / 2, z));
     }
@@ -23,14 +24,23 @@ function desk(mats, length = 4, depth = 0.75, height = 0.74) {
   return g;
 }
 
+const screenHitMaterial = new THREE.MeshBasicMaterial({ visible: false });
+
 function monitor(mats, w = 0.55, h = 0.33) {
   const g = new THREE.Group();
   const bezel = box(w, h, 0.025, mats.monitorBlack, 0, h / 2 + 0.28, 0);
   const screen = new THREE.Mesh(new THREE.PlaneGeometry(w - 0.035, h - 0.045), mats.screen);
   screen.position.set(0, h / 2 + 0.28, 0.02);
-  const neck = box(0.06, 0.2, 0.045, mats.monitorBlack, 0, 0.18, -0.02);
-  const base = box(0.26, 0.018, 0.18, mats.monitorBlack, 0, 0.01, 0);
-  g.add(bezel, screen, neck, base);
+
+  // larger, invisible click target so the screen is easy to hit from a distance
+  const hit = new THREE.Mesh(new THREE.PlaneGeometry(w + 0.16, h + 0.14), screenHitMaterial);
+  hit.position.set(0, h / 2 + 0.28, 0.03);
+  hit.visible = false;
+  hit.userData.devScreen = true;
+
+  const neck = box(0.06, 0.28, 0.045, mats.monitorBlack, 0, 0.14, -0.02);
+  const base = box(0.28, 0.018, 0.2, mats.monitorBlack, 0, 0.01, 0);
+  g.add(bezel, screen, hit, neck, base);
   return g;
 }
 
@@ -78,6 +88,7 @@ function pcTower(mats) {
 export function buildProps(mats) {
   const group = new THREE.Group();
   group.name = "props";
+  const monitors = [];
 
   /* ---- office row along the right glazed wall ---- */
   const deskRow = desk(mats, 6.0, 0.75, 0.74);
@@ -87,13 +98,14 @@ export function buildProps(mats) {
   const deskZ = [-1.6, -0.1, 1.4, 2.9];
   deskZ.forEach((z, i) => {
     const mon = monitor(mats);
-    mon.position.set(6.32, 0.74, z);
+    mon.position.set(6.32, 0.76, z);
     mon.rotation.y = -Math.PI / 2;
     group.add(mon);
+    monitors.push(mon);
 
     const kb = keyboard(mats);
-    kb.position.set(5.99, 0.74, z);
-    kb.rotation.y = 0;
+    kb.position.set(6.12, 0.761, z);
+    kb.rotation.y = Math.PI / 2;
     group.add(kb);
 
     group.add(
@@ -103,7 +115,7 @@ export function buildProps(mats) {
           mats.monitorBlack
         );
         m.scale.set(0.6, 0.45, 1);
-        m.position.set(5.99, 0.755, z + 0.15);
+        m.position.set(6.15, 0.773, z + 0.28);
         return m;
       })()
     );
@@ -132,18 +144,19 @@ export function buildProps(mats) {
 
   for (const z of [2.4, 4.1, 5.8]) {
     const mon = monitor(mats);
-    mon.position.set(-6.62, 0.74, z);
+    mon.position.set(-6.62, 0.76, z);
     mon.rotation.y = Math.PI / 2;
     group.add(mon);
+    monitors.push(mon);
 
     const kb = keyboard(mats);
-    kb.position.set(-6.3, 0.74, z);
+    kb.position.set(-6.47, 0.761, z);
     kb.rotation.y = Math.PI / 2;
     group.add(kb);
 
     const mouse = new THREE.Mesh(new THREE.SphereGeometry(0.03, 10, 8), mats.monitorBlack);
     mouse.scale.set(0.6, 0.45, 1);
-    mouse.position.set(-6.3, 0.755, z + 0.15);
+    mouse.position.set(-6.44, 0.773, z + 0.28);
     group.add(mouse);
 
     const chair = officeChair(mats);
@@ -152,26 +165,7 @@ export function buildProps(mats) {
     group.add(chair);
   }
 
-  /* ---- rolling witness monitor by the line ---- */
-  const cart = new THREE.Group();
-  cart.position.set(3.45, 0, -4.35);
-  cart.add(box(0.55, 0.04, 0.42, mats.aluDark, 0, 0.98, 0));
-  cart.add(cyl(0.03, 0.03, 0.95, mats.aluDark, 12, 0, 0.49, -0.05));
-  for (const sx of [-1, 1]) {
-    cart.add(
-      cyl(0.035, 0.035, 0.03, mats.rubber, 10, sx * 0.19, 0.035, 0, { rotZ: Math.PI / 2 })
-    );
-  }
-  const cartMon = monitor(mats, 0.6, 0.36);
-  cartMon.position.set(0, 0.99, 0.02);
-  cartMon.rotation.y = -Math.PI / 2;
-  cart.add(cartMon);
-  const cartKb = keyboard(mats);
-  cartKb.position.set(0.05, 1.0, 0.26);
-  cart.add(cartKb);
-  group.add(cart);
-
-  /* ---- backpacks / buckets / trolley / pallets ---- */
+  /* ---- backpacks / pallets ---- */
   const backpack = (x, z, color) => {
     const g = new THREE.Group();
     const bodyMat = new THREE.MeshStandardMaterial({ color, roughness: 0.92 });
@@ -196,37 +190,7 @@ export function buildProps(mats) {
     return g;
   };
   group.add(backpack(5.72, 0.75, 0x1e2328));
-  group.add(backpack(-5.55, 7.15, 0x2c333a));
-
-  const bucket = (x, z, color) => {
-    const g = new THREE.Group();
-    const mat = new THREE.MeshStandardMaterial({ color, roughness: 0.6 });
-    g.add(cyl(0.15, 0.12, 0.34, mat, 18, 0, 0.17, 0));
-    g.add(
-      new THREE.Mesh(new THREE.TorusGeometry(0.152, 0.013, 8, 20), mat).rotateX(Math.PI / 2)
-    );
-    g.children[1].position.y = 0.34;
-    g.position.set(x, 0, z);
-    return g;
-  };
-  group.add(bucket(7.15, -9.7, 0x2f9e63));
-  group.add(bucket(6.55, -10.3, 0xe8b400));
-
-  const trolley = new THREE.Group();
-  trolley.position.set(-7.15, 0, -8.9);
-  trolley.add(box(0.52, 0.92, 0.68, mats.senaiRed, 0, 0.5, 0));
-  for (let i = 0; i < 5; i++) {
-    trolley.add(box(0.005, 0.015, 0.6, mats.graphite, 0.262, 0.2 + i * 0.16, 0));
-  }
-  trolley.add(box(0.6, 0.03, 0.74, mats.blackPlastic, 0, 1.0, 0));
-  for (const sx of [-1, 1]) {
-    for (const sz of [-1, 1]) {
-      trolley.add(cyl(0.045, 0.045, 0.03, mats.rubber, 10, sx * 0.2, 0.035, sz * 0.27, {
-        rotZ: Math.PI / 2,
-      }));
-    }
-  }
-  group.add(trolley);
+  group.add(backpack(-4.9, 7.2, 0x2c333a));
 
   const pallet = new THREE.Group();
   pallet.position.set(-6.7, 0, 7.9);
@@ -250,13 +214,40 @@ export function buildProps(mats) {
   cabinet.add(box(0.01, 0.02, 0.44, mats.graphite, 0.255, 1.2, 0.24));
   group.add(cabinet);
 
-  /* ---- cable reels / misc ---- */
-  const reel = new THREE.Group();
-  reel.position.set(4.3, 0, -8.8);
-  reel.add(cyl(0.28, 0.28, 0.08, mats.aluminum || mats.alu, 20, 0, 0.28, 0, { rotZ: 0 }));
-  group.add(reel);
+  /* ---- course display in the automation corner ---- */
+  const display = new THREE.Group();
+  display.position.set(-5.7, 0, -6.7);
+  display.rotation.y = 0.35;
+
+  const boardW = 2.5;
+  const boardH = 1.4;
+  const boardBottom = 0.92;
+  const boardCY = boardBottom + boardH / 2;
+
+  const frameMat = mats.graphite.clone();
+  frameMat.roughness = 0.88;
+  frameMat.metalness = 0.08;
+
+  display.add(box(2.15, 0.06, 0.46, mats.graphite, 0, 0.03, 0.06));
+  for (const sx of [-1, 1]) {
+    display.add(box(0.07, boardBottom - 0.06, 0.07, mats.aluDark, sx * 1.02, 0.06 + (boardBottom - 0.06) / 2, -0.1));
+  }
+  display.add(box(2.04, 0.05, 0.05, mats.aluDark, 0, 0.24, -0.1));
+
+  display.add(box(boardW, boardH + 0.12, 0.035, frameMat, 0, boardCY, -0.035));
+  display.add(box(boardW, 0.06, 0.1, frameMat, 0, boardBottom + boardH + 0.03, 0));
+  display.add(box(boardW, 0.06, 0.1, frameMat, 0, boardBottom - 0.03, 0));
+  for (const sx of [-1, 1]) {
+    display.add(box(0.06, boardH + 0.12, 0.1, frameMat, sx * (boardW / 2 - 0.03), boardCY, 0));
+  }
+  display.add(box(2.42, 0.022, 0.012, mats.senaiRed, 0, boardBottom + boardH + 0.062, 0.052));
+
+  const poster = new THREE.Mesh(new THREE.PlaneGeometry(2.4, 1.3), mats.courseBoard);
+  poster.position.set(0, boardCY, 0.023);
+  display.add(poster);
+  group.add(display);
 
   addShadows(group, true, true);
 
-  return { group };
+  return { group, monitors };
 }

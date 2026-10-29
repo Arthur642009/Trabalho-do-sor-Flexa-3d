@@ -15,6 +15,10 @@
     <div id="app">
       <canvas id="scene"></canvas>
       <div id="labels" class="label-layer"></div>
+      <div id="crosshair" aria-hidden="true">
+        <span class="ch-ring"></span>
+        <em class="ch-hint"></em>
+      </div>
 
       <header class="topbar">
         <div class="brand glass">
@@ -91,6 +95,8 @@
         <span><b>Arraste</b> para orbitar</span>
         <span><b>Scroll</b> para zoom</span>
         <span><b>Clique</b> em uma estação</span>
+        <span><b>Telas HMI</b> programam as bancadas</span>
+        <span><b>Monitores</b> abrem o Dev Lab</span>
       </div>
 
       <div class="nav-dock glass">
@@ -113,7 +119,8 @@
 
       <div class="walk-hint glass">
         <span><b>WASD</b> andar</span>
-        <span><b>Arrastar</b> olhar</span>
+        <span><b>Mouse</b> olhar</span>
+        <span><b>E</b> interagir</span>
         <span><b>Shift</b> correr</span>
         <span><b>Esc</b> sair</span>
       </div>
@@ -130,6 +137,7 @@
         <div class="panel-tech" id="panel-tech"></div>
         <div class="panel-footer">
           <button id="panel-focus" class="focus-btn">Focar estação</button>
+          <button id="panel-blocks" class="focus-btn focus-btn--alt" hidden>Programar bancada</button>
           <button id="panel-program" class="focus-btn focus-btn--alt" hidden>Programar robô</button>
         </div>
       </aside>

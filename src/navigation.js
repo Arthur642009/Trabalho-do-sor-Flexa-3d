@@ -13,15 +13,9 @@ export const BLOCKERS = [
   { x1: 5.9, x2: 6.8, z1: -2.3, z2: 3.9 }, // mesas da parede direita
   { x1: -7.1, x2: -6.3, z1: 1.4, z2: 7.0 }, // mesa da parede esquerda
   { x1: -3.45, x2: -2.85, z1: -5.15, z2: -4.65 }, // controlador do robô
-  { x1: -7.25, x2: -4.55, z1: -6.75, z2: -4.45 }, // célula com cerca
-  { x1: -6.3, x2: -4.7, z1: -8.3, z2: -8.1 }, // barreira amarela
-  { x1: -6.3, x2: -4.7, z1: -9.9, z2: -9.7 }, // barreira amarela
-  { x1: -7.45, x2: -6.85, z1: -9.25, z2: -8.55 }, // carrinho vermelho
+  { x1: -6.85, x2: -4.55, z1: -7.4, z2: -6.0 }, // quadro do Curso de Robótica
   { x1: -7.3, x2: -6.1, z1: 7.35, z2: 8.45 }, // pallet
   { x1: -7.65, x2: -7.05, z1: 9.85, z2: 10.95 }, // armário
-  { x1: 3.1, x2: 3.8, z1: -4.6, z2: -4.1 }, // carrinho com monitor
-  { x1: 3.95, x2: 4.65, z1: -9.15, z2: -8.45 }, // bobina de cabo
-  { x1: 6.85, x2: 7.45, z1: -10.05, z2: -9.35 }, // baldes
 ];
 
 export function isWalkable(x, z, radius = PLAYER_RADIUS) {

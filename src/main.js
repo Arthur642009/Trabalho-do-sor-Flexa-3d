@@ -10,7 +10,11 @@ import { buildProps } from "./props.js";
 import { buildRobot } from "./robot.js";
 import { createVR } from "./vr.js";
 import { createWalk } from "./walk.js";
+import { createDevStudio } from "./devstudio.js";
+import { createBlockLab } from "./blocklab.js";
 import { easeInOut } from "./utils.js";
+import "./devstudio.css";
+import "./blocklab.css";
 
 /* ------------------------------------------------------------------ */
 /* renderer / scene                                                    */
@@ -71,28 +75,84 @@ const lines = buildLines(mats, renderer);
 scene.add(lines.root);
 const props = buildProps(mats);
 scene.add(props.group);
-const robot = buildRobot(scene, mats);
+const robot = buildRobot(scene, mats, renderer);
 
 const updaters = lines.updaters;
 
 const vr = createVR({ renderer, scene, camera, room });
-const walk = createWalk({ camera, dom: renderer.domElement, controls });
+const walk = createWalk({
+  camera,
+  dom: renderer.domElement,
+  controls,
+  onStop: () => syncWalkButton(),
+  onInspect: () => inspectCenter(),
+});
+
+const studio = createDevStudio();
+const blockLab = createBlockLab({
+  onParts: (n) => addParts(n),
+  // Esc is Chrome's own pointer-lock exit gesture, so grab the lock just after the key event.
+  onClose: () => setTimeout(startWalkHere, 140),
+});
+
+const devScreens = [];
+for (const mon of props.monitors) {
+  mon.traverse((o) => {
+    if (o.userData.devScreen) devScreens.push(o);
+  });
+}
+
+const hmiHits = [];
+const hmiToStation = new Map();
+for (const s of lines.stations) {
+  if (!s.hmi) continue;
+  hmiHits.push(s.hmi.hit);
+  hmiToStation.set(s.hmi.hit, s);
+}
+
+const CENTER = new THREE.Vector2(0, 0);
+
+function pickInteractable(clientX, clientY) {
+  pointer.x = (clientX / window.innerWidth) * 2 - 1;
+  pointer.y = -(clientY / window.innerHeight) * 2 + 1;
+  raycaster.setFromCamera(pointer, camera);
+  const hmi = raycaster.intersectObjects(hmiHits, false)[0];
+  const dev = raycaster.intersectObjects(devScreens, false)[0];
+  if (hmi && (!dev || hmi.distance <= dev.distance)) {
+    return { type: "hmi", station: hmiToStation.get(hmi.object) || null };
+  }
+  if (dev) return { type: "dev" };
+  return null;
+}
+
+function openBlockLab(station) {
+  if (!station || blockLab.isOpen() || vr.active) return;
+  closePanel();
+  closeProgramPanel();
+  studio.close();
+  if (walk.active) walk.stop();
+  tween = null;
+  blockLab.open(station);
+}
+
+function openStudio() {
+  if (studio.isOpen() || vr.active) return;
+  closePanel();
+  closeProgramPanel();
+  blockLab.close();
+  if (walk.active) {
+    walk.stop();
+    syncWalkButton();
+  }
+  tween = null;
+  studio.open();
+}
 
 /* ------------------------------------------------------------------ */
 /* station entries, labels and interactions                            */
 /* ------------------------------------------------------------------ */
 
-const entries = lines.stations.map((s) => ({
-  code: s.code,
-  name: s.name,
-  type: s.type,
-  desc: s.desc,
-  tech: s.tech,
-  focus: s.focus,
-  hitbox: s.hitbox,
-  labelPos: s.labelPos,
-  labelHeight: s.labelHeight,
-}));
+const entries = [...lines.stations];
 
 const robotEntry = {
   code: "CÉLULA",
@@ -106,6 +166,10 @@ const robotEntry = {
   isRobot: true,
 };
 entries.push(robotEntry);
+
+robotEntry.hmi = robot.hmi;
+hmiHits.push(robot.hmi.hit);
+hmiToStation.set(robot.hmi.hit, robotEntry);
 
 const labels = [];
 
@@ -128,6 +192,7 @@ for (const s of entries) {
 
 const hitToEntry = new Map();
 entries.forEach((e) => hitToEntry.set(e.hitbox, e));
+const hitboxes = entries.map((e) => e.hitbox);
 
 /* click selection --------------------------------------------------- */
 
@@ -163,6 +228,7 @@ function select(entry) {
   panel.classList.add("is-open");
   panel.setAttribute("aria-hidden", "false");
   panelProgramBtn.hidden = !entry.isRobot;
+  panelBlocksBtn.hidden = !entry.station;
 
   clearSelectionMarker();
 
@@ -218,8 +284,19 @@ renderer.domElement.addEventListener("pointerdown", (ev) => {
 });
 
 renderer.domElement.addEventListener("pointerup", (ev) => {
+  if (walk.active || blockLab.isOpen()) return;
   const moved = Math.hypot(ev.clientX - down.x, ev.clientY - down.y);
   if (moved > 7 || performance.now() - down.t > 700) return;
+  const target = pickInteractable(ev.clientX, ev.clientY);
+  if (target && target.type === "hmi") {
+    if (target.station?.isRobot) openProgramPanel();
+    else openBlockLab(target.station);
+    return;
+  }
+  if (target && target.type === "dev") {
+    openStudio();
+    return;
+  }
   const entry = pickEntry(ev.clientX, ev.clientY);
   if (entry) select(entry);
   else closePanel();
@@ -227,16 +304,83 @@ renderer.domElement.addEventListener("pointerup", (ev) => {
 
 let hoverCheck = 0;
 renderer.domElement.addEventListener("pointermove", (ev) => {
+  if (walk.active || blockLab.isOpen()) return;
   const now = performance.now();
   if (now - hoverCheck < 90) return;
   hoverCheck = now;
-  renderer.domElement.style.cursor = pickEntry(ev.clientX, ev.clientY) ? "pointer" : "grab";
+  const target = pickInteractable(ev.clientX, ev.clientY);
+  const entry = target ? null : pickEntry(ev.clientX, ev.clientY);
+  renderer.domElement.style.cursor = target || entry ? "pointer" : "grab";
+  renderer.domElement.title =
+    target?.type === "hmi"
+      ? target.station?.isRobot
+        ? "Programar robô (teach pendant)"
+        : "Programar bancada em blocos"
+      : target?.type === "dev"
+        ? "Abrir Dev Lab — atividades de programação"
+        : "";
 });
 
 document.getElementById("panel-close").addEventListener("click", closePanel);
 panelFocus.addEventListener("click", () => {
   if (selected) setView(null, selected.focus.pos, selected.focus.target);
 });
+
+/* ------------------------------------------------------------------ */
+/* first-person aiming                                                 */
+/* ------------------------------------------------------------------ */
+
+const crosshair = document.getElementById("crosshair");
+const crosshairHint = crosshair.querySelector(".ch-hint");
+let aimTimer = 0;
+
+function pickAtCenter(maxHmi, maxEntry) {
+  raycaster.setFromCamera(CENTER, camera);
+  const hmi = raycaster.intersectObjects(hmiHits, false)[0];
+  if (hmi && hmi.distance <= maxHmi) {
+    return { type: "hmi", station: hmiToStation.get(hmi.object) || null };
+  }
+  const hit = raycaster.intersectObjects(hitboxes, false)[0];
+  if (hit && hit.distance <= maxEntry) {
+    return { type: "entry", entry: hitToEntry.get(hit.object) || null };
+  }
+  return null;
+}
+
+function inspectCenter() {
+  if (!walk.active) return;
+  const aim = pickAtCenter(5.5, 7.5);
+  if (aim?.type === "hmi" && aim.station) {
+    if (aim.station.isRobot) openProgramPanel();
+    else openBlockLab(aim.station);
+  } else if (aim?.type === "entry" && aim.entry) select(aim.entry);
+}
+
+function updateAim(dt) {
+  if (!walk.active || !walk.isLocked()) {
+    crosshair.classList.remove("is-target");
+    crosshairHint.textContent = "";
+    return;
+  }
+  aimTimer += dt;
+  if (aimTimer < 0.1) return;
+  aimTimer = 0;
+  const aim = pickAtCenter(5.5, 7.5);
+  if (aim?.type === "hmi" && aim.station) {
+    crosshair.classList.add("is-target");
+    crosshairHint.textContent = aim.station.isRobot
+      ? "E · programar robô"
+      : `E · programar ${aim.station.code}`;
+  } else if (aim?.type === "entry" && aim.entry) {
+    crosshair.classList.add("is-target");
+    crosshairHint.textContent = aim.entry.isRobot
+      ? "E · célula robótica"
+      : `E · ${aim.entry.code}`;
+  } else {
+    crosshair.classList.remove("is-target");
+    crosshairHint.textContent = "";
+  }
+}
 
 /* ------------------------------------------------------------------ */
 /* camera presets                                                      */
@@ -270,6 +414,7 @@ let tween = null;
 
 function setView(name, posOverride, targetOverride) {
   if (vr.active) return;
+  blockLab.close();
   if (walk.active) {
     walk.stop();
     syncWalkButton();
@@ -309,8 +454,8 @@ const statusPill = document.getElementById("status-pill");
 const statusText = document.getElementById("status-text");
 const kpi = document.getElementById("kpi-parts");
 
-robot.setOnPlaced(() => {
-  parts++;
+function addParts(n = 1) {
+  parts += n;
   kpi.textContent = String(parts).padStart(3, "0");
   kpi.animate(
     [
@@ -319,7 +464,9 @@ robot.setOnPlaced(() => {
     ],
     { duration: 420, easing: "ease-out" }
   );
-});
+}
+
+robot.setOnPlaced(() => addParts());
 
 document.getElementById("toggle-labels").addEventListener("change", (ev) => {
   document.body.classList.toggle("no-labels", !ev.target.checked);
@@ -341,6 +488,7 @@ function toggleUI() {
 }
 uiToggle.addEventListener("click", toggleUI);
 document.body.addEventListener("keydown", (ev) => {
+  if (studio.isOpen() || blockLab.isOpen()) return;
   if (ev.key === "h" || ev.key === "H") toggleUI();
   if (ev.key === "Escape") {
     if (isProgramOpen()) {
@@ -349,7 +497,6 @@ document.body.addEventListener("keydown", (ev) => {
     }
     if (walk.active) {
       walk.stop();
-      setView("overview");
       syncWalkButton();
     }
     closePanel();
@@ -375,6 +522,19 @@ function syncWalkButton() {
   walkBtn.title = walk.active ? "Voltar à visão geral (Esc)" : "Andar pelo galpão com WASD";
 }
 
+/* Resume walking from wherever the camera is, so leaving a panel keeps us on the spot. */
+function startWalkHere() {
+  if (vr.active) return;
+  const dir = camera.getWorldDirection(new THREE.Vector3());
+  walk.start({
+    x: camera.position.x,
+    z: camera.position.z,
+    yaw: Math.atan2(-dir.x, -dir.z),
+    pitch: Math.asin(Math.max(-1, Math.min(1, dir.y))),
+  });
+  syncWalkButton();
+}
+
 function syncVRButton(on) {
   vrBtn.classList.toggle("is-active", on);
   if (on) vrBtnText.textContent = "Sair da VR";
@@ -389,6 +549,8 @@ vr.onChange((on) => {
     tween = null;
     closePanel();
     closeProgramPanel();
+    studio.close();
+    blockLab.close();
     if (walk.active) {
       walk.stop();
       syncWalkButton();
@@ -430,12 +592,14 @@ walkBtn.addEventListener("click", () => {
   if (vr.active) return;
   if (walk.active) {
     walk.stop();
-    setView("overview");
   } else {
+    const resuming = blockLab.isOpen();
     closePanel();
     closeProgramPanel();
+    blockLab.close();
     tween = null;
-    walk.start();
+    if (resuming) startWalkHere();
+    else walk.start();
   }
   syncWalkButton();
 });
@@ -463,6 +627,7 @@ const speedValueEl = document.getElementById("speed-value");
 const programLoopEl = document.getElementById("program-loop");
 const programClearBtn = document.getElementById("program-clear");
 const panelProgramBtn = document.getElementById("panel-program");
+const panelBlocksBtn = document.getElementById("panel-blocks");
 const pointsSaveBtn = document.getElementById("points-save");
 const pointsResetBtn = document.getElementById("points-reset");
 const pointsStateEl = document.getElementById("points-state");
@@ -724,6 +889,7 @@ function setProgramRunningUI(on) {
 
 function openProgramPanel() {
   if (isProgramOpen() || vr.active) return;
+  blockLab.close();
   if (walk.active) {
     walk.stop();
     syncWalkButton();
@@ -731,6 +897,7 @@ function openProgramPanel() {
   closePanel();
   setView("robot");
   robot.startProgramming();
+  robot.hmi?.draw("MODO MANUAL", "ready");
   programPanel.classList.add("is-open");
   programPanel.setAttribute("aria-hidden", "false");
   currentStep = -1;
@@ -743,6 +910,7 @@ function openProgramPanel() {
 function closeProgramPanel() {
   if (!isProgramOpen()) return;
   robot.endProgramming();
+  robot.hmi?.draw("TOQUE PARA PROGRAMAR", "idle");
   programPanel.classList.remove("is-open");
   programPanel.setAttribute("aria-hidden", "true");
   currentStep = -1;
@@ -751,6 +919,9 @@ function closeProgramPanel() {
 }
 
 panelProgramBtn.addEventListener("click", openProgramPanel);
+panelBlocksBtn.addEventListener("click", () => {
+  if (selected && selected.station) openBlockLab(selected);
+});
 programCloseBtn.addEventListener("click", closeProgramPanel);
 
 document.querySelectorAll(".pg-jog").forEach((btn) => {
@@ -862,6 +1033,7 @@ robot.onProgramEvent((ev) => {
   if (ev.type === "step") {
     currentStep = ev.index;
     renderProgram();
+    robot.hmi?.draw(`PASSO ${ev.index + 1}/${ev.total}`, "running");
     setProgramStatus(
       "running",
       `Passo ${ev.index + 1}/${ev.total} · ${ev.step ? ev.step.label : ""}`
@@ -870,11 +1042,13 @@ robot.onProgramEvent((ev) => {
     currentStep = -1;
     setProgramRunningUI(false);
     syncGripButton();
+    robot.hmi?.draw("PROGRAMA CONCLUÍDO", "done");
     setProgramStatus("done", "Programa concluído");
   } else if (ev.type === "stop") {
     currentStep = -1;
     setProgramRunningUI(false);
     syncGripButton();
+    robot.hmi?.draw("PROGRAMA INTERROMPIDO", "error");
     setProgramStatus("manual", "Programa interrompido");
   }
 });
@@ -946,6 +1120,8 @@ function animate() {
     robot.update(ctx);
   }
 
+  blockLab.update(dt);
+
   if (isProgramOpen()) {
     tipTimer += dt;
     if (tipTimer >= 0.12) {
@@ -965,6 +1141,7 @@ function animate() {
       if (k >= 1) tween = null;
     }
     walk.update(dt);
+    updateAim(dt);
     if (!walk.active) controls.update();
   }
 
@@ -1030,6 +1207,11 @@ if (import.meta.env.DEV) {
     robot,
     openProgramPanel,
     closeProgramPanel,
+    studio,
+    openStudio,
+    blockLab,
+    openBlockLab,
+    hmiHits,
   };
 }
 

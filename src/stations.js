@@ -6,8 +6,9 @@ import {
   easeInOut,
   clamp01,
 } from "./utils.js";
-import { makePlateMaterial, makeLCDMaterial } from "./materials.js";
+import { makePlateMaterial } from "./materials.js";
 import { createPuck, createTray } from "./parts.js";
+import { createHmi } from "./hmi.js";
 
 export const TOP_Y = 0.945;
 export const STATION_MODULE = 1.08;
@@ -83,7 +84,7 @@ function tslotBase(mats, w = 0.82, d = 0.56) {
   const g = new THREE.Group();
   const h = 0.032;
   g.add(box(w, 0.016, d, mats.graphite, 0, 0.008, 0));
-  g.add(box(w - 0.07, 0.008, d - 0.07, mats.benchTop, 0, 0.02, 0));
+  g.add(box(w - 0.075, 0.02, d - 0.075, mats.benchTop, 0, 0.026, 0));
   g.add(box(w, h, 0.034, mats.alu, 0, 0.008 + h / 2, -d / 2 + 0.017));
   g.add(box(w, h, 0.034, mats.alu, 0, 0.008 + h / 2, d / 2 - 0.017));
   g.add(box(0.034, h, d, mats.alu, -w / 2 + 0.017, 0.008 + h / 2, 0));
@@ -113,14 +114,20 @@ function nameplate(mats, renderer, code, type, x = -0.413, y = 0.052, z = 0.16) 
 
 function buildDistribution(mats, renderer, code) {
   const g = new THREE.Group();
-  const updaters = [];
   g.add(tslotBase(mats));
   const B = 0.036;
 
-  // transparent tube magazine
-  const mx = -0.09;
+  const mx = -0.06;
+  const PUCK_R = 0.036;
+  const PUCK_H = 0.026;
+  const PITCH = 0.032;
+  const BASE_Y = B + 0.043;
+  const TRAVEL = 0.08;
+  const OUT_LEFT = -0.4;
+  const COUNT = 8;
+
+  // transparent stack tube, open at the bottom so the ejector can reach the puck
   const magazine = new THREE.Group();
-  const tubeH = 0.3;
   const acrylic = new THREE.MeshPhysicalMaterial({
     color: 0xd7e6ea,
     metalness: 0,
@@ -131,46 +138,51 @@ function buildDistribution(mats, renderer, code) {
     side: THREE.DoubleSide,
     depthWrite: false,
   });
-  magazine.add(cyl(0.078, 0.078, 0.03, mats.graphite, 20, mx, B + 0.015, 0));
+  magazine.add(cyl(0.07, 0.07, 0.02, mats.graphite, 22, mx, B + 0.02, 0));
+  const tubeH = 0.266;
   const tube = new THREE.Mesh(
-    new THREE.CylinderGeometry(0.062, 0.062, tubeH, 24, 1, true),
+    new THREE.CylinderGeometry(0.052, 0.052, tubeH, 24, 1, true),
     acrylic
   );
-  tube.position.set(mx, B + 0.03 + tubeH / 2, 0);
+  tube.position.set(mx, B + 0.066 + tubeH / 2, 0);
   magazine.add(tube);
-  magazine.add(cyl(0.072, 0.072, 0.016, mats.graphite, 20, mx, B + 0.03 + tubeH, 0));
-  const tubePucks = [];
-  for (let i = 0; i < 8; i++) {
-    const p = createPuck(mats, 0.048, 0.026);
-    p.position.set(mx, B + 0.049 + i * 0.033, 0);
+  magazine.add(cyl(0.06, 0.06, 0.014, mats.graphite, 22, mx, B + 0.066 + tubeH, 0));
+
+  const pucks = [];
+  for (let i = 0; i < COUNT; i++) {
+    const p = createPuck(mats, PUCK_R, PUCK_H);
+    p.position.set(mx, BASE_Y + i * PITCH, 0);
     magazine.add(p);
-    tubePucks.push(p);
+    pucks.push(p);
   }
-  magazine.add(cyl(0.05, 0.05, 0.012, mats.pinkPlastic, 18, mx, B + 0.049 + 7 * 0.033 + 0.02, 0));
   g.add(magazine);
 
-  // ejector cylinder
-  const ejector = pneumaticCylinder(mats, { len: 0.15, r: 0.024, stroke: 0.075 });
+  // ejector: pad rests against the bottom puck, stroke clears it from the stack
+  const ejector = pneumaticCylinder(mats, { len: 0.14, r: 0.02, stroke: 0.075 });
   ejector.rotation.z = Math.PI / 2;
-  ejector.position.set(0.24, B + 0.1, 0);
+  ejector.position.set(0.119, BASE_Y, 0);
   g.add(ejector);
+  g.add(box(0.06, 0.023, 0.05, mats.alu, 0.1, B + 0.0115, 0));
+  g.add(cyl(0.026, 0.026, 0.024, mats.aluDark, 18, 0.07, BASE_Y, 0, { rotZ: Math.PI / 2 }));
 
-  // outfeed chute
-  g.add(box(0.2, 0.008, 0.16, mats.alu, -0.28, B + 0.012, 0));
-  g.add(box(0.006, 0.045, 0.16, mats.alu, -0.38, B + 0.03, 0));
-  g.add(box(0.006, 0.045, 0.16, mats.alu, -0.19, B + 0.03, 0));
+  // outfeed rail, level with the magazine base
+  g.add(box(0.3, 0.03, 0.14, mats.alu, -0.25, B + 0.015, 0));
+  for (const sz of [-1, 1]) {
+    g.add(box(0.3, 0.05, 0.008, mats.alu, -0.25, B + 0.055, sz * 0.066));
+  }
 
-  // sensor on the magazine
-  const sensor = sensorBeam(mats, mx, B + 0.06, 0.1);
+  // presence sensor on its own post
+  const sensor = sensorBeam(mats, mx + 0.02, B + 0.09, 0.09);
   g.add(sensor);
+  g.add(box(0.014, 0.065, 0.014, mats.aluDark, mx + 0.02, B + 0.0325, 0.09));
 
   // pneumatics
   const valve = valveBlock(mats);
   valve.position.set(0.3, B, 0.18);
   g.add(valve);
-  g.add(hose([0.3, B + 0.09, 0.16], [0.24, B + 0.12, 0.03], 0.0042, mats.blueTube, 0.035));
-  g.add(hose([0.3, B + 0.09, 0.2], [0.16, B + 0.13, -0.02], 0.0042, mats.blueTube, 0.05, -0.02));
-  g.add(hose([0.3, B + 0.09, 0.18], [-0.02, B + 0.16, 0.12], 0.0042, mats.blueTube, 0.06, 0.02));
+  g.add(hose([0.3, B + 0.09, 0.16], [0.088, B + 0.062, 0.004], 0.0042, mats.blueTube, 0.04));
+  g.add(hose([0.3, B + 0.09, 0.2], [0.01, B + 0.062, -0.004], 0.0042, mats.blueTube, 0.05, -0.02));
+  g.add(hose([0.3, B + 0.09, 0.18], [-0.04, B + 0.09, 0.09], 0.0042, mats.blueTube, 0.05, 0.02));
   g.add(hose([0.3, B + 0.05, 0.2], [0.3, B + 0.05, 0.26], 0.0055, mats.blackCable, 0.02));
 
   const light = stackLight(mats);
@@ -178,18 +190,53 @@ function buildDistribution(mats, renderer, code) {
   g.add(light.group);
   g.add(nameplate(mats, renderer, code, "DISTRIBUIÇÃO"));
 
-  updaters.push((ctx) => {
-    ejector.setExtension(pulse(ctx.t, 3.2, 0.1));
-    const on = Math.floor(ctx.t * 1.5) % 2 === 0;
-    sensor.children[1].material = on ? mats.ledRed : mats.ledOff;
-  });
+  let mag = pucks.slice();
+  let rail = [];
 
-  return { group: g, updaters, height: 0.44 };
+  const ctl = {
+    apply(action, p) {
+      if (action !== "eject") return;
+      const push = easeInOut(clamp01(p / 0.28));
+      const drop = easeInOut(clamp01((p - 0.45) / 0.3));
+      const retract = easeInOut(clamp01((p - 0.58) / 0.38));
+      ejector.setExtension(push * (1 - retract));
+      mag.forEach((pk, i) => {
+        pk.position.x = mx - (i === 0 ? push * TRAVEL : 0);
+        pk.position.y = BASE_Y + i * PITCH - (i > 0 ? drop * PITCH : 0);
+      });
+      rail.forEach((r) => {
+        r.mesh.position.x = r.baseX - push * TRAVEL;
+      });
+      sensor.children[1].material = p > 0.12 && p < 0.8 ? mats.ledRed : mats.ledOff;
+    },
+    commit(action) {
+      if (action !== "eject" || mag.length === 0) return;
+      rail.forEach((r) => {
+        r.baseX -= TRAVEL;
+        r.mesh.position.x = r.baseX;
+        if (r.baseX <= OUT_LEFT) r.mesh.visible = false;
+      });
+      const out = mag.shift();
+      out.position.set(mx - TRAVEL, BASE_Y, 0);
+      rail.unshift({ mesh: out, baseX: mx - TRAVEL });
+    },
+    reset() {
+      ejector.setExtension(0);
+      rail = [];
+      mag = pucks.slice();
+      pucks.forEach((pk, i) => {
+        pk.visible = true;
+        pk.position.set(mx, BASE_Y + i * PITCH, 0);
+      });
+      sensor.children[1].material = mats.ledRed;
+    },
+  };
+
+  return { group: g, height: 0.44, ctl, light };
 }
 
 function buildTest(mats, renderer, code) {
   const g = new THREE.Group();
-  const updaters = [];
   g.add(tslotBase(mats));
   const B = 0.036;
 
@@ -201,10 +248,11 @@ function buildTest(mats, renderer, code) {
   g.add(box(0.04, 0.04, 0.36, mats.alu, px, B + 0.47, 0));
   g.add(box(0.13, 0.012, 0.1, mats.graphite, px, B + 0.5, 0));
 
-  const press = pneumaticCylinder(mats, { len: 0.17, r: 0.03, stroke: 0.075 });
+  const press = pneumaticCylinder(mats, { len: 0.27, r: 0.03, stroke: 0.1 });
   press.rotation.x = Math.PI;
   press.position.set(px, B + 0.45, 0);
   g.add(press);
+  g.add(cyl(0.045, 0.045, 0.012, mats.aluDark, 20, px, B + 0.443, 0));
 
   // test nest + part
   g.add(box(0.14, 0.03, 0.14, mats.aluDark, px, B + 0.015, 0));
@@ -222,37 +270,48 @@ function buildTest(mats, renderer, code) {
   const needle = box(0.003, 0.028, 0.005, mats.redPaint, -0.016, 0.007, 0);
   needle.rotation.x = 0.5;
   gauge.add(face, needle);
-  gauge.position.set(px - 0.06, B + 0.36, 0.2);
+  gauge.position.set(px - 0.06, B + 0.37, 0.155);
   gauge.rotation.y = Math.PI / 2;
   g.add(gauge);
+  g.add(box(0.018, 0.09, 0.018, mats.aluDark, px - 0.06, B + 0.405, 0.19));
+  g.add(box(0.018, 0.018, 0.04, mats.aluDark, px - 0.06, B + 0.39, 0.172));
 
   const valve = valveBlock(mats);
   valve.position.set(0.3, B, 0.16);
   g.add(valve);
-  g.add(hose([0.3, B + 0.09, 0.16], [0.12, B + 0.32, 0.08], 0.0042, mats.blueTube, 0.06));
-  g.add(hose([0.3, B + 0.09, 0.2], [0.18, B + 0.34, -0.06], 0.0042, mats.blueTube, 0.075, -0.02));
+  g.add(hose([0.3, B + 0.09, 0.16], [0.06, B + 0.39, 0.006], 0.0042, mats.blueTube, 0.06));
+  g.add(hose([0.3, B + 0.09, 0.2], [0.06, B + 0.24, -0.006], 0.0042, mats.blueTube, 0.075, -0.02));
   g.add(hose([0.04, B + 0.1, 0.22], [0.24, B + 0.08, 0.24], 0.0042, mats.blueTube, 0.035));
   g.add(hose([0.3, B + 0.05, 0.18], [0.3, B + 0.05, 0.25], 0.0055, mats.blackCable, 0.015));
 
   const sensor = sensorBeam(mats, px + 0.09, B + 0.07, 0.08);
   g.add(sensor);
+  g.add(box(0.014, 0.045, 0.014, mats.aluDark, px + 0.09, B + 0.0225, 0.08));
 
   const light = stackLight(mats);
   light.group.position.set(0.32, B, -0.2);
   g.add(light.group);
   g.add(nameplate(mats, renderer, code, "TESTE"));
 
-  updaters.push((ctx) => {
-    press.setExtension(pulse(ctx.t, 4.1, 0.55));
-    sensor.children[1].material = Math.floor(ctx.t * 2) % 2 === 0 ? mats.ledRed : mats.ledOff;
-  });
+  const ctl = {
+    apply(action, p) {
+      if (action !== "press") return;
+      const k = p < 0.4 ? easeInOut(p / 0.4) : p < 0.64 ? 1 : 1 - easeInOut((p - 0.64) / 0.36);
+      press.setExtension(k);
+      sensor.children[1].material =
+        p > 0.3 && p < 0.75 ? mats.ledRed : mats.ledOff;
+    },
+    reset() {
+      press.setExtension(0);
+      sensor.children[1].material = mats.ledRed;
+    },
+  };
 
-  return { group: g, updaters, height: 0.52 };
+  return { group: g, height: 0.52, ctl, light };
 }
 
 function buildProcessing(mats, renderer, code) {
   const g = new THREE.Group();
-  const updaters = [];
   g.add(tslotBase(mats));
   const B = 0.036;
 
@@ -267,18 +326,18 @@ function buildProcessing(mats, renderer, code) {
     const fx = Math.cos(a) * 0.105;
     const fz = Math.sin(a) * 0.105;
     table.add(box(0.07, 0.016, 0.07, mats.alu, fx, 0.024, fz));
-    table.add(box(0.02, 0.03, 0.02, mats.graphite, fx - 0.03, 0.045, fz - 0.03));
+    table.add(box(0.02, 0.02, 0.02, mats.graphite, fx - 0.05, 0.028, fz - 0.05));
     if (i % 2 === 0) {
       const p = createPuck(mats, 0.032, 0.024);
-      p.position.set(fx, 0.05, fz);
+      p.position.set(fx, 0.044, fz);
       table.add(p);
     }
   }
   g.add(table);
 
-  // rotary actuator body
+  // rotary actuator body, coupled to the table through a drive shaft
   g.add(box(0.1, 0.07, 0.1, mats.bluePlastic, 0.27, B + 0.035, 0.02));
-  g.add(box(0.02, 0.02, 0.06, mats.aluDark, 0.2, B + 0.05, 0.06));
+  g.add(cyl(0.012, 0.012, 0.075, mats.chrome, 12, 0.1835, B + 0.06, 0.02, { rotZ: Math.PI / 2 }));
   const valve = valveBlock(mats);
   valve.position.set(0.3, B, -0.19);
   g.add(valve);
@@ -289,7 +348,8 @@ function buildProcessing(mats, renderer, code) {
   // safety light curtain posts
   for (const sz of [-1, 1]) {
     g.add(box(0.02, 0.24, 0.02, mats.yellow, -0.33, B + 0.12, sz * 0.22));
-    g.add(box(0.02, 0.02, 0.02, mats.ledRed, -0.33, B + 0.2, sz * 0.2));
+    g.add(box(0.04, 0.012, 0.04, mats.aluDark, -0.33, B + 0.006, sz * 0.22));
+    g.add(box(0.024, 0.024, 0.024, mats.ledRed, -0.33, B + 0.2, sz * 0.22));
   }
 
   const light = stackLight(mats);
@@ -297,19 +357,26 @@ function buildProcessing(mats, renderer, code) {
   g.add(light.group);
   g.add(nameplate(mats, renderer, code, "PROCESSAMENTO"));
 
-  const step = 2.8;
-  updaters.push((ctx) => {
-    const base = Math.floor(ctx.t / step);
-    const local = (ctx.t % step) / 0.7;
-    table.rotation.y = -base * (Math.PI / 2) - easeInOut(clamp01(local)) * (Math.PI / 2);
-  });
+  let index = 0;
+  const ctl = {
+    apply(action, p) {
+      if (action !== "rotate") return;
+      table.rotation.y = -index * (Math.PI / 2) - easeInOut(p) * (Math.PI / 2);
+    },
+    commit(action) {
+      if (action === "rotate") index++;
+    },
+    reset() {
+      index = 0;
+      table.rotation.y = 0;
+    },
+  };
 
-  return { group: g, updaters, height: 0.3 };
+  return { group: g, height: 0.3, ctl, light };
 }
 
 function buildAssembly(mats, renderer, code) {
   const g = new THREE.Group();
-  const updaters = [];
   g.add(tslotBase(mats));
   const B = 0.036;
 
@@ -319,15 +386,18 @@ function buildAssembly(mats, renderer, code) {
   }
   g.add(box(0.045, 0.045, 0.48, mats.alu, 0.02, B + 0.51, 0));
 
-  const press = pneumaticCylinder(mats, { len: 0.15, r: 0.028, stroke: 0.085 });
+  // press over the base part, feeder over the insert
+  const press = pneumaticCylinder(mats, { len: 0.31, r: 0.028, stroke: 0.12 });
   press.rotation.x = Math.PI;
-  press.position.set(0.02, B + 0.48, -0.09);
+  press.position.set(0.02, B + 0.478, -0.03);
   g.add(press);
+  g.add(cyl(0.04, 0.04, 0.012, mats.aluDark, 20, 0.02, B + 0.483, -0.03));
 
-  const feeder = pneumaticCylinder(mats, { len: 0.12, r: 0.022, stroke: 0.06 });
+  const feeder = pneumaticCylinder(mats, { len: 0.31, r: 0.022, stroke: 0.097 });
   feeder.rotation.x = Math.PI;
-  feeder.position.set(0.02, B + 0.48, 0.11);
+  feeder.position.set(0.02, B + 0.478, 0.04);
   g.add(feeder);
+  g.add(cyl(0.03, 0.03, 0.012, mats.aluDark, 20, 0.02, B + 0.483, 0.04));
 
   // base nest with two parts
   g.add(box(0.18, 0.02, 0.16, mats.aluDark, 0.02, B + 0.01, 0));
@@ -341,21 +411,23 @@ function buildAssembly(mats, renderer, code) {
   // cap magazine
   g.add(box(0.08, 0.09, 0.07, mats.alu, -0.2, B + 0.045, -0.14));
   for (let i = 0; i < 4; i++) {
-    g.add(cyl(0.026, 0.026, 0.008, mats.steel, 14, -0.2, B + 0.085 + i * 0.01, -0.14));
+    g.add(cyl(0.026, 0.026, 0.008, mats.steel, 14, -0.2, B + 0.094 + i * 0.008, -0.14));
   }
 
-  // side pusher
+  // side pusher, pad level with the insert and clear of the nest
   const pusher = pneumaticCylinder(mats, { len: 0.11, r: 0.02, stroke: 0.05 });
   pusher.rotation.z = Math.PI / 2;
-  pusher.position.set(0.3, B + 0.09, 0.19);
+  pusher.position.set(0.16, B + 0.045, 0.04);
   g.add(pusher);
+  g.add(box(0.04, 0.025, 0.05, mats.aluDark, 0.14, B + 0.0125, 0.04));
+  g.add(cyl(0.024, 0.024, 0.02, mats.aluDark, 16, 0.12, B + 0.045, 0.04, { rotZ: Math.PI / 2 }));
 
   const valve = valveBlock(mats);
   valve.position.set(0.3, B, -0.2);
   g.add(valve);
-  g.add(hose([0.3, B + 0.09, -0.18], [0.11, B + 0.3, -0.12], 0.0042, mats.blueTube, 0.06));
-  g.add(hose([0.3, B + 0.09, -0.22], [0.13, B + 0.34, 0.02], 0.0042, mats.blueTube, 0.08, -0.03));
-  g.add(hose([0.3, B + 0.1, -0.2], [0.3, B + 0.16, 0.18], 0.0042, mats.blueTube, 0.07, 0.02));
+  g.add(hose([0.3, B + 0.09, -0.18], [0.06, B + 0.41, -0.03], 0.0042, mats.blueTube, 0.06));
+  g.add(hose([0.3, B + 0.09, -0.22], [0.06, B + 0.236, -0.03], 0.0042, mats.blueTube, 0.08, -0.03));
+  g.add(hose([0.3, B + 0.1, -0.2], [0.12, B + 0.064, 0.04], 0.0042, mats.blueTube, 0.07, 0.02));
   g.add(hose([0.3, B + 0.05, -0.24], [0.3, B + 0.05, -0.3], 0.0055, mats.blackCable, 0.02));
 
   const light = stackLight(mats);
@@ -363,13 +435,22 @@ function buildAssembly(mats, renderer, code) {
   g.add(light.group);
   g.add(nameplate(mats, renderer, code, "MONTAGEM"));
 
-  updaters.push((ctx) => {
-    press.setExtension(pulse(ctx.t, 3.6, 0.2));
-    feeder.setExtension(pulse(ctx.t, 3.6, 0.45));
-    pusher.setExtension(pulse(ctx.t, 3.6, 0.7));
-  });
+  const seg = (p, a, b) => easeInOut(clamp01((p - a) / (b - a)));
+  const ctl = {
+    apply(action, p) {
+      if (action !== "assemble") return;
+      press.setExtension(seg(p, 0, 0.24) * (1 - seg(p, 0.46, 0.62)));
+      feeder.setExtension(seg(p, 0.18, 0.4) * (1 - seg(p, 0.5, 0.64)));
+      pusher.setExtension(seg(p, 0.64, 0.8) * (1 - seg(p, 0.84, 0.97)));
+    },
+    reset() {
+      press.setExtension(0);
+      feeder.setExtension(0);
+      pusher.setExtension(0);
+    },
+  };
 
-  return { group: g, updaters, height: 0.54 };
+  return { group: g, updaters, height: 0.54, ctl, light };
 }
 
 function buildStorage(mats, renderer, code) {
@@ -385,6 +466,8 @@ function buildStorage(mats, renderer, code) {
     }
   }
   const levels = [0.1, 0.27, 0.44];
+  let storePart = null;
+  let storeBaseY = 0;
   levels.forEach((y, idx) => {
     g.add(box(0.42, 0.012, 0.42, mats.alu, rx, B + y, 0));
     if (idx < 2) {
@@ -402,6 +485,8 @@ function buildStorage(mats, renderer, code) {
       const p2 = createPuck(mats, 0.05, 0.03);
       p2.position.set(rx + 0.06, B + y + 0.026, 0.06);
       g.add(p2);
+      storePart = p2;
+      storeBaseY = B + y + 0.026;
     }
   });
 
@@ -420,7 +505,21 @@ function buildStorage(mats, renderer, code) {
     light.amber.material = Math.floor(ctx.t * 1.2) % 2 === 0 ? mats.ledAmber : mats.ledOff;
   });
 
-  return { group: g, updaters, height: 0.5 };
+  const ctl = {
+    apply(action, p) {
+      if (action !== "store" || !storePart) return;
+      const k = easeInOut(clamp01(p / 0.72));
+      storePart.position.z = 0.28 - k * 0.22;
+      storePart.position.y = storeBaseY + Math.sin(k * Math.PI) * 0.06;
+      light.amber.material = p < 0.75 ? mats.ledAmber : mats.ledGreen;
+    },
+    reset() {
+      if (storePart) storePart.position.set(0.06, storeBaseY, 0.06);
+      light.amber.material = mats.ledAmber;
+    },
+  };
+
+  return { group: g, updaters, height: 0.5, ctl, light };
 }
 
 function buildConveyorStation(mats, renderer, code) {
@@ -506,14 +605,38 @@ function buildConveyorStation(mats, renderer, code) {
     sOut.children[1].material = !blink ? mats.ledRed : mats.ledOff;
   });
 
-  return { group: g, updaters, height: 0.22 };
+  const ctl = {
+    apply(action, p) {
+      if (action === "belt") {
+        tex.offset.y = -((p * 3.2) % 1);
+        pucks.forEach((pk, i) => {
+          const cycle = (p * 1.15 + i * 0.33) % 1;
+          pk.position.z = length / 2 - cycle * length;
+          pk.position.y = 0.071;
+        });
+        sIn.children[1].material = p > 0.04 ? mats.ledRed : mats.ledOff;
+        sOut.children[1].material = p > 0.82 ? mats.ledRed : mats.ledOff;
+      } else if (action === "diverge") {
+        const k = p < 0.42 ? easeInOut(p / 0.42) : p < 0.66 ? 1 : 1 - easeInOut((p - 0.66) / 0.34);
+        pusher.setExtension(k);
+      }
+    },
+    reset() {
+      pusher.setExtension(0);
+      tex.offset.y = 0;
+      sIn.children[1].material = mats.ledRed;
+      sOut.children[1].material = mats.ledRed;
+    },
+  };
+
+  return { group: g, updaters, height: 0.22, ctl, light };
 }
 
 /* ------------------------------------------------------------------ */
 /* bench                                                               */
 /* ------------------------------------------------------------------ */
 
-function buildBench(mats, renderer, { length, stationZs, codes, types, lcdLabels }) {
+function buildBench(mats, renderer, { length, stationZs, codes, types }) {
   const g = new THREE.Group();
   const bodyW = 0.8;
 
@@ -530,6 +653,19 @@ function buildBench(mats, renderer, { length, stationZs, codes, types, lcdLabels
       const z = (stationZs[i - 1] + stationZs[i]) / 2;
       g.add(box(bodyW - 0.08, 0.44, 0.03, mats.offWhite, 0, 0.39, z));
     }
+  }
+
+  // closed cabinet doors on the aisle side, one per station module
+  const doorZ = [-length / 2 + 0.03];
+  for (let i = 1; i < stationZs.length; i++) {
+    doorZ.push((stationZs[i - 1] + stationZs[i]) / 2);
+  }
+  doorZ.push(length / 2 - 0.03);
+  for (let i = 1; i < doorZ.length; i++) {
+    const z0 = doorZ[i - 1] + 0.014;
+    const z1 = doorZ[i] - 0.014;
+    if (z1 - z0 < 0.05) continue;
+    g.add(box(0.03, 0.41, z1 - z0, mats.whitePaint, -0.385, 0.395, (z0 + z1) / 2));
   }
 
   for (const z of stationZs) {
@@ -567,19 +703,11 @@ function buildBench(mats, renderer, { length, stationZs, codes, types, lcdLabels
   }
 
   // control panels + status
+  const hmis = [];
   stationZs.forEach((z, i) => {
     const panel = new THREE.Group();
     panel.position.set(-0.41, 0.72, z);
     panel.add(box(0.03, 0.32, 0.3, mats.offWhite, 0, 0, 0));
-    const lcd = makeLCDMaterial(renderer, [
-      codes[i],
-      lcdLabels[i],
-      "AUTO",
-    ]);
-    const screen = new THREE.Mesh(new THREE.PlaneGeometry(0.15, 0.09), lcd);
-    screen.rotation.y = -Math.PI / 2;
-    screen.position.set(-0.017, 0.075, 0.02);
-    panel.add(screen);
 
     const buttons = [
       [mats.greenPlastic, -0.1],
@@ -610,6 +738,10 @@ function buildBench(mats, renderer, { length, stationZs, codes, types, lcdLabels
 
     // station plate
     g.add(panel);
+
+    const hmi = createHmi(mats, renderer, codes[i], types[i], z);
+    g.add(hmi.root);
+    hmis.push(hmi);
   });
 
   // air preparation unit on the back of the bench
@@ -640,7 +772,7 @@ function buildBench(mats, renderer, { length, stationZs, codes, types, lcdLabels
     g.add(cable);
   }
 
-  return g;
+  return { group: g, hmis };
 }
 
 /* ------------------------------------------------------------------ */
@@ -722,6 +854,50 @@ export function buildLines(mats, renderer) {
   const stations = [];
   const updaters = [];
 
+  function attachProgram(entry, built, hmi) {
+    const state = { programMode: false };
+    entry.hmi = hmi;
+    entry.state = state;
+
+    const setSignal = (name) => {
+      const lt = built.light;
+      if (!lt) return;
+      lt.red.material = name === "all" || name === "red" ? mats.ledRed : mats.ledOff;
+      lt.amber.material = name === "all" || name === "amber" ? mats.ledAmber : mats.ledOff;
+      lt.green.material = name === "all" || name === "green" ? mats.ledGreen : mats.ledOff;
+    };
+
+    entry.setProgramMode = (on) => {
+      state.programMode = on;
+      if (on) {
+        hmi?.draw("MODO PROGRAMA", "ready");
+      } else {
+        built.ctl?.reset?.();
+        setSignal("all");
+        hmi?.draw("TOQUE PARA PROGRAMAR", "idle");
+      }
+    };
+
+    entry.programStep = (action, p) => {
+      if (action === "signalGreen") setSignal("green");
+      else if (action === "signalAmber") setSignal("amber");
+      else if (action === "signalOff") setSignal("off");
+      else if (action === "piece" && built.light) {
+        built.light.green.material =
+          Math.floor(p * 5) % 2 === 0 ? mats.ledGreen : mats.ledOff;
+      } else {
+        built.ctl?.apply?.(action, p);
+      }
+    };
+
+    entry.programCommit = (action) => {
+      built.ctl?.commit?.(action);
+      if (action === "piece") setSignal("green");
+    };
+
+    return entry;
+  }
+
   /* ---------------- right line ---------------- */
   const rightZ = [-2.7, -1.62, -0.54, 0.54, 1.62, 2.7];
   const rightCodes = ["MPS-01", "MPS-02", "MPS-03", "MPS-04", "MPS-05", "MPS-06"];
@@ -730,15 +906,13 @@ export function buildLines(mats, renderer) {
 
   const rightBench = new THREE.Group();
   rightBench.position.set(2.0, 0, 0);
-  rightBench.add(
-    buildBench(mats, renderer, {
-      length: 7.2,
-      stationZs: rightZ,
-      codes: rightCodes,
-      types: rightTypes,
-      lcdLabels: ["DISTRIB", "TESTE", "PROCESS", "MONTAG", "ARMAZ", "TRANSF"],
-    })
-  );
+  const rightHmis = buildBench(mats, renderer, {
+    length: 7.2,
+    stationZs: rightZ,
+    codes: rightCodes,
+    types: rightTypes,
+  });
+  rightBench.add(rightHmis.group);
 
   const rightBuilders = [
     buildDistribution,
@@ -753,18 +927,22 @@ export function buildLines(mats, renderer) {
     const built = rightBuilders[i](mats, renderer, rightCodes[i]);
     built.group.position.set(0, TOP_Y, z);
     rightBench.add(built.group);
-    updaters.push(...built.updaters);
-    stations.push(
-      makeStationEntry({
-        code: rightCodes[i],
-        kind: rightKinds[i],
-        lineX: 2.0,
-        facing: -1,
-        z,
-        group: built.group,
-        height: built.height,
+    const stationState = makeStationEntry({
+      code: rightCodes[i],
+      kind: rightKinds[i],
+      lineX: 2.0,
+      facing: -1,
+      z,
+      group: built.group,
+      height: built.height,
+    });
+    attachProgram(stationState, built, rightHmis.hmis[i]);
+    built.updaters.forEach((fn) =>
+      updaters.push((ctx) => {
+        if (!stationState.state.programMode) fn(ctx);
       })
     );
+    stations.push(stationState);
   });
   root.add(rightBench);
 
@@ -779,32 +957,34 @@ export function buildLines(mats, renderer) {
   const leftBench = new THREE.Group();
   leftBench.position.set(-2.0, 0, 0);
   leftBench.rotation.y = Math.PI;
-  leftBench.add(
-    buildBench(mats, renderer, {
-      length: 7.8,
-      stationZs: leftZ,
-      codes: leftCodes,
-      types: leftTypes,
-      lcdLabels: ["DISTRIB", "TESTE", "MONTAG", "ARMAZ"],
-    })
-  );
+  const leftHmis = buildBench(mats, renderer, {
+    length: 7.8,
+    stationZs: leftZ,
+    codes: leftCodes,
+    types: leftTypes,
+  });
+  leftBench.add(leftHmis.group);
 
   leftZ.forEach((z, i) => {
     const built = leftBuilders[i](mats, renderer, leftCodes[i]);
     built.group.position.set(0, TOP_Y, z);
     leftBench.add(built.group);
-    updaters.push(...built.updaters);
-    stations.push(
-      makeStationEntry({
-        code: leftCodes[i],
-        kind: leftKinds[i],
-        lineX: -2.0,
-        facing: 1,
-        z: leftWorldZ[i],
-        group: built.group,
-        height: built.height,
+    const stationState = makeStationEntry({
+      code: leftCodes[i],
+      kind: leftKinds[i],
+      lineX: -2.0,
+      facing: 1,
+      z: leftWorldZ[i],
+      group: built.group,
+      height: built.height,
+    });
+    attachProgram(stationState, built, leftHmis.hmis[i]);
+    built.updaters.forEach((fn) =>
+      updaters.push((ctx) => {
+        if (!stationState.state.programMode) fn(ctx);
       })
     );
+    stations.push(stationState);
   });
   root.add(leftBench);
 

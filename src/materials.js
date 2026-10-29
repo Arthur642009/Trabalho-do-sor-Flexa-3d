@@ -4,13 +4,13 @@ import {
   floorTextures,
   brushedTexture,
   beltTexture,
-  brandGlassTexture,
   lcdTexture,
   screenTexture,
   stationPlateTexture,
   hazardTexture,
   exitSignTexture,
   skyTexture,
+  courseBoardTexture,
 } from "./textures.js";
 
 export function createMaterials(renderer) {
@@ -20,22 +20,22 @@ export function createMaterials(renderer) {
   const floor = floorTextures(aniso, [1, 1]);
   const brushed = brushedTexture(aniso);
 
-  const tBrand = brandGlassTexture(aniso);
   const tScreen = screenTexture(aniso);
   const tExit = exitSignTexture(aniso);
   const tSky = skyTexture(aniso);
   const tHazard = hazardTexture(aniso);
   const tBelt = beltTexture(aniso);
+  const tCourse = courseBoardTexture(aniso);
 
   const mats = {
     aniso,
     textures: {
       belt: tBelt,
-      brand: tBrand,
       screen: tScreen,
       hazard: tHazard,
       exit: tExit,
       sky: tSky,
+      course: tCourse,
       brickBase: brick,
       floorBase: floor,
     },
@@ -133,14 +133,6 @@ export function createMaterials(renderer) {
       roughness: 0.25,
       metalness: 0.2,
     }),
-    brand: new THREE.MeshStandardMaterial({
-      map: tBrand,
-      emissive: 0xffffff,
-      emissiveMap: tBrand,
-      emissiveIntensity: 0.22,
-      roughness: 0.3,
-      metalness: 0.05,
-    }),
     sky: new THREE.MeshBasicMaterial({ map: tSky, toneMapped: false }),
     exit: new THREE.MeshStandardMaterial({
       map: tExit,
@@ -148,6 +140,15 @@ export function createMaterials(renderer) {
       emissiveMap: tExit,
       emissiveIntensity: 0.7,
       roughness: 0.5,
+    }),
+    courseBoard: new THREE.MeshStandardMaterial({
+      map: tCourse,
+      emissive: 0xffffff,
+      emissiveMap: tCourse,
+      emissiveIntensity: 0.42,
+      roughness: 0.92,
+      metalness: 0,
+      envMapIntensity: 0.08,
     }),
     lamp: new THREE.MeshStandardMaterial({
       color: 0xffffff,

@@ -362,11 +362,6 @@ function buildFarWall(group, mats) {
     group.add(brickBox(3.4, 2.9, 0.3, mats, s * 2.1, 4.95, z));
   }
 
-  // glazed band with SENAI branding
-  const brand = new THREE.Mesh(new THREE.PlaneGeometry(3.1, 2.05), mats.brand);
-  brand.position.set(glassX, 1.85, z + 0.06);
-  group.add(brand);
-
   const glass = new THREE.Mesh(new THREE.PlaneGeometry(3.4, 3.5), mats.glassClear);
   glass.position.set(glassX, 1.85, z + 0.2);
   group.add(glass);
@@ -382,7 +377,7 @@ function buildFarWall(group, mats) {
   frames.castShadow = false;
   group.add(frames);
 
-  // corridor behind the branding
+  // corridor seen through the glazed band
   const corridor = new THREE.Mesh(
     new THREE.PlaneGeometry(4.2, 3.8),
     new THREE.MeshStandardMaterial({ color: 0x2a3138, roughness: 0.95 })
@@ -487,78 +482,6 @@ function buildNearWall(group, mats) {
   group.add(exterior);
 }
 
-function buildMachineCell(group, mats) {
-  // fenced automation cell, echoing the plexiglass enclosure in the photos
-  const cx = -5.9;
-  const cz = -5.6;
-  const W = 2.6;
-  const D = 2.2;
-  const H = 2.25;
-
-  const posts = [];
-  const rails = [];
-  for (const sx of [-1, 1]) {
-    for (const sz of [-1, 1]) {
-      posts.push(boxGeometryAt(0.09, H, 0.09, cx + (sx * W) / 2, H / 2, cz + (sz * D) / 2));
-    }
-  }
-  for (const y of [0.12, H - 0.08]) {
-    rails.push(boxGeometryAt(W, 0.08, 0.08, cx, y, cz - D / 2));
-    rails.push(boxGeometryAt(W, 0.08, 0.08, cx, y, cz + D / 2));
-    rails.push(boxGeometryAt(0.08, 0.08, D, cx - W / 2, y, cz));
-    rails.push(boxGeometryAt(0.08, 0.08, D, cx + W / 2, y, cz));
-  }
-  const frame = mergeToMesh([...posts, ...rails], mats.whitePaint);
-  group.add(frame);
-
-  const glassMat = mats.glassClear;
-  const panels = [
-    [W - 0.06, H - 0.2, 0, H / 2, -D / 2],
-    [W - 0.06, H - 0.2, 0, H / 2, D / 2],
-    [D - 0.06, H - 0.2, -W / 2, H / 2, 0],
-    [D - 0.06, H - 0.2, W / 2, H / 2, 0],
-  ];
-  panels.forEach(([pw, ph, px, py, pz], i) => {
-    const p = new THREE.Mesh(new THREE.PlaneGeometry(pw, ph), glassMat);
-    p.position.set(cx + px, py, cz + pz);
-    if (i < 2) p.rotation.y = 0;
-    else p.rotation.y = Math.PI / 2;
-    group.add(p);
-  });
-
-  // machine inside
-  const base = box(1.5, 0.75, 1.0, mats.offWhite, cx, 0.375, cz);
-  group.add(base);
-  const body = box(1.25, 0.55, 0.8, mats.lightGrey, cx, 1.02, cz + 0.06);
-  group.add(body);
-  const head = box(0.7, 0.4, 0.5, mats.graphite, cx - 0.1, 1.42, cz + 0.1);
-  group.add(head);
-  const cover = box(0.72, 0.02, 0.52, mats.bluePlastic, cx - 0.1, 1.63, cz + 0.1);
-  group.add(cover);
-  const hmi = box(0.22, 0.16, 0.05, mats.monitorBlack, cx + 0.45, 1.2, cz + 0.47);
-  group.add(hmi);
-  const hmiScreen = new THREE.Mesh(new THREE.PlaneGeometry(0.19, 0.13), mats.screen);
-  hmiScreen.position.set(cx + 0.45, 1.2, cz + 0.5);
-  group.add(hmiScreen);
-  const stack = cyl(0.035, 0.035, 0.16, mats.ledGreen, 12, cx + 0.6, 1.5, cz - 0.3);
-  group.add(stack);
-
-  // yellow safety barriers near the cell
-  const fenceMat = mats.yellow;
-  [cz - 2.6, cz - 4.2].forEach((z) => {
-    const fx = cx + 0.4;
-    const postA = box(0.08, 1.35, 0.08, fenceMat, fx - 0.75, 0.675, z);
-    const postB = box(0.08, 1.35, 0.08, fenceMat, fx + 0.75, 0.675, z);
-    group.add(postA, postB);
-    for (const y of [0.55, 1.05]) {
-      group.add(box(1.5, 0.06, 0.05, fenceMat, fx, y, z));
-    }
-    const hazardStrip = box(1.5, 0.22, 0.03, mats.hazard, fx, 0.28, z);
-    hazardStrip.castShadow = false;
-    group.add(hazardStrip);
-  });
-}
-
 function buildProps(group, roof, mats) {
   // compressed-air main lines along the ceiling
   for (const x of [-6.6, 6.9]) {
@@ -580,14 +503,28 @@ function buildProps(group, roof, mats) {
     roof.add(box(0.34, 0.02, 25, mats.blackCable, x, 4.585, 0, { cast: false }));
   }
 
-  // wall-mounted fire extinguisher on the right glazed wall
-  const ext = cyl(0.075, 0.075, 0.5, mats.senaiRed, 14, 7.8, 1.0, -6.4);
-  group.add(ext);
-  group.add(box(0.12, 0.55, 0.22, mats.redPaint, 7.94, 1.15, -6.4));
+  // wall-mounted fire extinguisher on the right glazed wall, by the desks
+  const extZ = 6.1;
+  const bracket = box(0.04, 0.52, 0.34, mats.graphite, 7.96, 1.02, extZ);
+  bracket.castShadow = false;
+  group.add(bracket);
+  group.add(cyl(0.075, 0.075, 0.46, mats.senaiRed, 16, 7.88, 1.02, extZ));
+  group.add(cyl(0.078, 0.078, 0.018, mats.graphite, 16, 7.88, 1.259, extZ));
+  group.add(box(0.1, 0.06, 0.12, mats.blackPlastic, 7.88, 1.3, extZ));
+  group.add(box(0.16, 0.02, 0.03, mats.blackPlastic, 7.86, 1.34, extZ));
+  const extHose = new THREE.Mesh(
+    tubeGeometryBetween([7.9, 1.29, extZ - 0.04], [7.86, 0.97, extZ - 0.09], 0.008),
+    mats.blackCable
+  );
+  extHose.castShadow = false;
+  group.add(extHose);
 
   // notice boards / signage on the right wall
+  const signBack = box(0.03, 0.36, 0.66, mats.graphite, 7.97, 2.9, -8.5);
+  signBack.castShadow = false;
+  group.add(signBack);
   const greenSign = new THREE.Mesh(new THREE.PlaneGeometry(0.6, 0.3), mats.exit);
-  greenSign.position.set(7.94, 2.9, -8.5);
+  greenSign.position.set(7.95, 2.9, -8.5);
   greenSign.rotation.y = -Math.PI / 2;
   group.add(greenSign);
 
@@ -617,7 +554,6 @@ export function buildRoom(scene, mats) {
   buildChamferWall(group, mats, -1, -1);
   buildFarWall(group, mats);
   buildNearWall(group, mats);
-  buildMachineCell(group, mats);
   buildProps(group, roof, mats);
 
   scene.add(group);

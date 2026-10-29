@@ -256,90 +256,6 @@ export function beltTexture(aniso = 8) {
 }
 
 /* ------------------------------------------------------------------ */
-/* Branded glass partition (as seen in the lab window)                 */
-/* ------------------------------------------------------------------ */
-
-export function brandGlassTexture(aniso = 8) {
-  const w = 1600;
-  const h = 900;
-  const rand = rng(77);
-  const c = makeCanvas(w, h, (ctx) => {
-    const g = ctx.createLinearGradient(0, 0, w, h);
-    g.addColorStop(0, "#3d2a77");
-    g.addColorStop(0.45, "#4a3184");
-    g.addColorStop(0.75, "#5a3a92");
-    g.addColorStop(1, "#35255f");
-    ctx.fillStyle = g;
-    ctx.fillRect(0, 0, w, h);
-
-    // geometric line pattern
-    ctx.strokeStyle = "rgba(255,255,255,0.16)";
-    ctx.lineWidth = 2;
-    for (let i = 0; i < 26; i++) {
-      ctx.beginPath();
-      ctx.moveTo(rand() * w, 0);
-      ctx.lineTo(rand() * w, h);
-      ctx.stroke();
-    }
-    for (let i = 0; i < 12; i++) {
-      ctx.beginPath();
-      ctx.moveTo(0, rand() * h);
-      ctx.lineTo(w, rand() * h);
-      ctx.stroke();
-    }
-
-    // brand color accent block
-    const accent = ctx.createLinearGradient(0, 0, w * 0.4, h);
-    accent.addColorStop(0, "rgba(255,255,255,0.10)");
-    accent.addColorStop(1, "rgba(255,255,255,0)");
-    ctx.fillStyle = accent;
-    ctx.beginPath();
-    ctx.moveTo(0, 0);
-    ctx.lineTo(w * 0.58, 0);
-    ctx.lineTo(w * 0.2, h);
-    ctx.lineTo(0, h);
-    ctx.closePath();
-    ctx.fill();
-
-    ctx.textAlign = "center";
-    ctx.fillStyle = "#ffffff";
-    ctx.font = "600 74px 'Segoe UI', Arial, sans-serif";
-    try {
-      ctx.letterSpacing = "10px";
-    } catch (e) {
-      /* older browsers */
-    }
-    ctx.fillText("APRENDIZADO PROFISSIONAL", w / 2, h * 0.44);
-
-    ctx.font = "italic 96px Georgia, 'Times New Roman', serif";
-    try {
-      ctx.letterSpacing = "0px";
-    } catch (e) {
-      /* ignore */
-    }
-    ctx.fillStyle = "rgba(255,255,255,0.95)";
-    ctx.fillText("que faz a diferença", w / 2, h * 0.62);
-
-    ctx.strokeStyle = "rgba(255,255,255,0.5)";
-    ctx.lineWidth = 3;
-    ctx.beginPath();
-    ctx.moveTo(w * 0.3, h * 0.72);
-    ctx.lineTo(w * 0.7, h * 0.72);
-    ctx.stroke();
-
-    // glass grime / reflections
-    const sheen = ctx.createLinearGradient(0, h * 0.1, w, h * 0.9);
-    sheen.addColorStop(0, "rgba(255,255,255,0)");
-    sheen.addColorStop(0.48, "rgba(255,255,255,0.07)");
-    sheen.addColorStop(0.52, "rgba(255,255,255,0.02)");
-    sheen.addColorStop(1, "rgba(255,255,255,0)");
-    ctx.fillStyle = sheen;
-    ctx.fillRect(0, 0, w, h);
-  });
-  return toTexture(c, { aniso });
-}
-
-/* ------------------------------------------------------------------ */
 /* Small panels: LCD, monitor, labels                                  */
 /* ------------------------------------------------------------------ */
 
@@ -436,6 +352,114 @@ export function stationPlateTexture(text = "MPS", sub = "E1", aniso = 8) {
   return toTexture(c, { aniso });
 }
 
+/* ------------------------------------------------------------------ */
+/* Station HMI touch panel (block programming)                         */
+/* ------------------------------------------------------------------ */
+
+const HMI_STATUS_COLORS = {
+  idle: ["#8d98a5", "rgba(255,255,255,0.08)"],
+  ready: ["#6fb0ff", "rgba(75,147,255,0.16)"],
+  running: ["#48e08a", "rgba(55,214,122,0.18)"],
+  done: ["#48e08a", "rgba(55,214,122,0.18)"],
+  error: ["#ff8a7a", "rgba(255,90,74,0.18)"],
+};
+
+export function hmiScreenTexture(aniso = 8, code = "MPS-00", label = "ESTAÇÃO", opts = {}) {
+  const tag = opts.tag || "HMI · BLOCOS";
+  const rows =
+    opts.rows ||
+    [
+      ["#2f6fd0", "iniciar ciclo", 1],
+      ["#2f9e63", "contar peça", 0.78],
+      ["#c99a2e", "aguardar 1 s", 0.88],
+    ];
+  const w = 512;
+  const h = 320;
+  const c = document.createElement("canvas");
+  c.width = w;
+  c.height = h;
+  const ctx = c.getContext("2d");
+  const texture = toTexture(c, { aniso });
+
+  const draw = (status = "TOQUE PARA PROGRAMAR", kind = "idle") => {
+    const g = ctx.createLinearGradient(0, 0, 0, h);
+    g.addColorStop(0, "#111820");
+    g.addColorStop(1, "#070a0e");
+    ctx.fillStyle = g;
+    ctx.fillRect(0, 0, w, h);
+
+    ctx.fillStyle = "#161d26";
+    ctx.fillRect(0, 0, w, 56);
+    ctx.fillStyle = "#d4141f";
+    ctx.fillRect(0, 0, 6, 56);
+    ctx.fillStyle = "#ffffff";
+    ctx.font = "700 26px 'Segoe UI', Arial, sans-serif";
+    ctx.fillText(code, 20, 37);
+    ctx.fillStyle = "#7f8a96";
+    ctx.font = "600 14px 'Segoe UI', Arial, sans-serif";
+    ctx.textAlign = "right";
+    ctx.fillText(tag, w - 18, 35);
+    ctx.textAlign = "left";
+
+    ctx.fillStyle = "#9fb0c0";
+    ctx.font = "600 15px 'Segoe UI', Arial, sans-serif";
+    ctx.fillText(label, 20, 84);
+
+    rows.forEach(([color, text, scale], i) => {
+      const y = 98 + i * 44;
+      const width = 176 * scale + 26;
+      ctx.fillStyle = color;
+      ctx.beginPath();
+      ctx.roundRect(20, y, width, 32, 8);
+      ctx.fill();
+      ctx.fillStyle = "rgba(255,255,255,0.92)";
+      ctx.font = "600 15px 'Segoe UI', Arial, sans-serif";
+      ctx.fillText(text, 34, y + 22);
+    });
+
+    ctx.save();
+    ctx.translate(392, 158);
+    ctx.strokeStyle = "rgba(120,150,180,0.3)";
+    ctx.lineWidth = 9;
+    ctx.beginPath();
+    ctx.arc(0, 0, 52, -0.4, Math.PI * 1.5);
+    ctx.stroke();
+    ctx.fillStyle = "rgba(75,147,255,0.16)";
+    ctx.beginPath();
+    ctx.arc(0, 0, 42, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = "#6fb0ff";
+    ctx.beginPath();
+    ctx.moveTo(-12, -20);
+    ctx.lineTo(26, 0);
+    ctx.lineTo(-12, 20);
+    ctx.closePath();
+    ctx.fill();
+    ctx.restore();
+
+    const [fg, bg] = HMI_STATUS_COLORS[kind] || HMI_STATUS_COLORS.idle;
+    ctx.fillStyle = bg;
+    ctx.strokeStyle = fg;
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.roundRect(18, 244, w - 36, 54, 12);
+    ctx.fill();
+    ctx.stroke();
+    ctx.fillStyle = fg;
+    ctx.beginPath();
+    ctx.arc(44, 271, 7, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = kind === "idle" ? "#c8d2dc" : fg;
+    ctx.font = "600 19px 'Segoe UI', Arial, sans-serif";
+    ctx.fillText(status, 62, 278);
+
+    texture.needsUpdate = true;
+  };
+
+  draw("TOQUE PARA PROGRAMAR", "idle");
+  return { texture, draw };
+}
+
 export function hazardTexture(aniso = 8) {
   const w = 256;
   const h = 64;
@@ -482,6 +506,233 @@ export function exitSignTexture(aniso = 8) {
     ctx.fill();
     ctx.font = "700 40px 'Segoe UI', Arial, sans-serif";
     ctx.fillText("SAÍDA", 110, 82);
+  });
+  return toTexture(c, { aniso });
+}
+
+/* Course display: backlit panel about the robotics course in the lab. */
+export function courseBoardTexture(aniso = 8) {
+  const w = 2048;
+  const h = 1152;
+  const c = makeCanvas(w, h, (ctx) => {
+    const bg = ctx.createLinearGradient(0, 0, w, h);
+    bg.addColorStop(0, "#10151a");
+    bg.addColorStop(0.55, "#182028");
+    bg.addColorStop(1, "#0d1216");
+    ctx.fillStyle = bg;
+    ctx.fillRect(0, 0, w, h);
+
+    ctx.strokeStyle = "rgba(150,180,210,0.055)";
+    ctx.lineWidth = 1;
+    for (let x = 0; x <= w; x += 64) {
+      ctx.beginPath();
+      ctx.moveTo(x, 0);
+      ctx.lineTo(x, h);
+      ctx.stroke();
+    }
+    for (let y = 0; y <= h; y += 64) {
+      ctx.beginPath();
+      ctx.moveTo(0, y);
+      ctx.lineTo(w, y);
+      ctx.stroke();
+    }
+
+    // red edge
+    ctx.fillStyle = "#e01b24";
+    ctx.fillRect(0, 0, 24, h);
+
+    // technical circles behind the artwork
+    ctx.strokeStyle = "rgba(224,27,36,0.5)";
+    ctx.lineWidth = 4;
+    ctx.beginPath();
+    ctx.arc(1600, 600, 352, -0.65, 1.35);
+    ctx.stroke();
+    ctx.strokeStyle = "rgba(255,255,255,0.09)";
+    ctx.lineWidth = 2;
+    ctx.setLineDash([10, 16]);
+    ctx.beginPath();
+    ctx.arc(1600, 600, 300, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.setLineDash([]);
+
+    /* ---------------- robot arm artwork ---------------- */
+    const armStroke = (a, b, width, color) => {
+      ctx.strokeStyle = color;
+      ctx.lineWidth = width;
+      ctx.lineCap = "round";
+      ctx.beginPath();
+      ctx.moveTo(a[0], a[1]);
+      ctx.lineTo(b[0], b[1]);
+      ctx.stroke();
+    };
+    const joint = (x, y, r, accent = "#e01b24") => {
+      ctx.beginPath();
+      ctx.arc(x, y, r, 0, Math.PI * 2);
+      ctx.fillStyle = "#131a20";
+      ctx.fill();
+      ctx.lineWidth = 9;
+      ctx.strokeStyle = accent;
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.arc(x, y, r * 0.36, 0, Math.PI * 2);
+      ctx.fillStyle = "#e8eef3";
+      ctx.fill();
+    };
+
+    // base
+    ctx.fillStyle = "#222c35";
+    ctx.strokeStyle = "rgba(255,255,255,0.22)";
+    ctx.lineWidth = 3;
+    ctx.beginPath();
+    ctx.moveTo(1445, 906);
+    ctx.lineTo(1645, 906);
+    ctx.lineTo(1610, 826);
+    ctx.lineTo(1480, 826);
+    ctx.closePath();
+    ctx.fill();
+    ctx.stroke();
+    ctx.fillStyle = "#e01b24";
+    ctx.fillRect(1470, 892, 150, 6);
+
+    armStroke([1545, 826], [1462, 642], 54, "#e6ecf1");
+    armStroke([1462, 642], [1700, 502], 46, "#e6ecf1");
+    armStroke([1700, 502], [1786, 548], 34, "#c3ccd4");
+    armStroke([1786, 548], [1806, 596], 16, "#e01b24");
+    armStroke([1786, 548], [1822, 522], 16, "#e01b24");
+
+    joint(1545, 826, 44);
+    joint(1462, 642, 38);
+    joint(1700, 502, 30);
+
+    // badge
+    ctx.fillStyle = "rgba(224,27,36,0.14)";
+    ctx.strokeStyle = "rgba(224,27,36,0.75)";
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.roundRect(1452, 96, 468, 76, 38);
+    ctx.fill();
+    ctx.stroke();
+    ctx.fillStyle = "#ff5a63";
+    ctx.font = "700 30px 'Segoe UI', Arial, sans-serif";
+    ctx.textAlign = "center";
+    try {
+      ctx.letterSpacing = "6px";
+    } catch (e) {
+      /* ignore */
+    }
+    ctx.fillText("ROBÓTICA INDUSTRIAL", 1686, 146);
+    try {
+      ctx.letterSpacing = "0px";
+    } catch (e) {
+      /* ignore */
+    }
+    ctx.textAlign = "left";
+
+    /* ---------------- logo ---------------- */
+    ctx.fillStyle = "#e01b24";
+    ctx.beginPath();
+    ctx.roundRect(92, 76, 330, 92, 10);
+    ctx.fill();
+    ctx.fillStyle = "#ffffff";
+    ctx.font = "800 54px 'Segoe UI', Arial, sans-serif";
+    try {
+      ctx.letterSpacing = "3px";
+    } catch (e) {
+      /* ignore */
+    }
+    ctx.fillText("SENAI", 120, 142);
+    try {
+      ctx.letterSpacing = "0px";
+    } catch (e) {
+      /* ignore */
+    }
+
+    ctx.fillStyle = "#d7dee5";
+    ctx.font = "600 34px 'Segoe UI', Arial, sans-serif";
+    ctx.fillText("Caxias do Sul", 456, 118);
+    ctx.fillStyle = "#8b96a1";
+    ctx.font = "400 26px 'Segoe UI', Arial, sans-serif";
+    try {
+      ctx.letterSpacing = "4px";
+    } catch (e) {
+      /* ignore */
+    }
+    ctx.fillText("RIO GRANDE DO SUL", 456, 154);
+    try {
+      ctx.letterSpacing = "0px";
+    } catch (e) {
+      /* ignore */
+    }
+
+    /* ---------------- headline ---------------- */
+    ctx.fillStyle = "#8f9aa5";
+    ctx.font = "600 27px 'Segoe UI', Arial, sans-serif";
+    try {
+      ctx.letterSpacing = "7px";
+    } catch (e) {
+      /* ignore */
+    }
+    ctx.fillText("EDUCAÇÃO PROFISSIONAL E TECNOLÓGICA", 92, 266);
+    try {
+      ctx.letterSpacing = "0px";
+    } catch (e) {
+      /* ignore */
+    }
+
+    ctx.fillStyle = "#eef3f7";
+    ctx.font = "600 68px 'Segoe UI', Arial, sans-serif";
+    ctx.fillText("CURSO DE", 92, 390);
+    try {
+      ctx.letterSpacing = "0px";
+    } catch (e) {
+      /* ignore */
+    }
+
+    ctx.fillStyle = "#ffffff";
+    ctx.font = "800 152px 'Segoe UI', Arial, sans-serif";
+    ctx.fillText("ROBÓTICA", 86, 542);
+
+    ctx.fillStyle = "#e01b24";
+    ctx.fillRect(92, 578, 636, 10);
+
+    ctx.fillStyle = "#b9c4ce";
+    ctx.font = "400 37px 'Segoe UI', Arial, sans-serif";
+    ctx.fillText("Formação em automação e robótica industrial", 92, 652);
+
+    /* ---------------- topics ---------------- */
+    const topics = [
+      "Programação de robôs industriais",
+      "CLPs, sensores e pneumática",
+      "Integração de células flexíveis",
+      "Prática no laboratório de automação",
+    ];
+    ctx.font = "600 33px 'Segoe UI', Arial, sans-serif";
+    topics.forEach((text, i) => {
+      const y = 764 + i * 62;
+      ctx.save();
+      ctx.translate(104, y - 11);
+      ctx.rotate(Math.PI / 4);
+      ctx.fillStyle = "#e01b24";
+      ctx.fillRect(-9, -9, 18, 18);
+      ctx.restore();
+      ctx.fillStyle = "#dde4ea";
+      ctx.fillText(text, 148, y);
+    });
+
+    /* ---------------- footer ---------------- */
+    ctx.strokeStyle = "rgba(255,255,255,0.14)";
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(92, 1012);
+    ctx.lineTo(1210, 1012);
+    ctx.stroke();
+
+    ctx.fillStyle = "#8f9aa5";
+    ctx.font = "400 28px 'Segoe UI', Arial, sans-serif";
+    ctx.fillText("Informe-se na secretaria da unidade", 92, 1068);
+    ctx.fillStyle = "#e6ecf1";
+    ctx.font = "600 28px 'Segoe UI', Arial, sans-serif";
+    ctx.fillText("senai.rs.br", 780, 1068);
   });
   return toTexture(c, { aniso });
 }
