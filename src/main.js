@@ -532,7 +532,7 @@ document.body.addEventListener("keydown", (ev) => {
   if (ev.key === "h" || ev.key === "H") toggleUI();
   if (ev.key === "Escape") {
     if (isProgramOpen()) {
-      closeProgramPanel();
+      closeProgramPanel({ resumeWalk: true });
       return;
     }
     if (walk.active) {
@@ -634,7 +634,7 @@ walkBtn.addEventListener("click", () => {
   if (walk.active) {
     walk.stop();
   } else {
-    const resuming = blockLab.isOpen();
+    const resuming = blockLab.isOpen() || isProgramOpen();
     closePanel();
     closeProgramPanel();
     blockLab.close();
@@ -686,6 +686,7 @@ const teachPoints = [];
 let pointSeq = 0;
 let programSteps = [];
 let programRunning = false;
+let programResumeWalk = false;
 let currentStep = -1;
 let jawClosed = false;
 let tipTimer = 0;
@@ -931,6 +932,7 @@ function setProgramRunningUI(on) {
 function openProgramPanel() {
   if (isProgramOpen() || vr.active) return;
   blockLab.close();
+  programResumeWalk = walk.active;
   if (walk.active) {
     walk.stop();
     syncWalkButton();
@@ -948,8 +950,12 @@ function openProgramPanel() {
   updateTipReadout();
 }
 
-function closeProgramPanel() {
+/* `resumeWalk` keeps the exact spot we were programming from instead of
+   dropping the player back at the hall entrance. */
+function closeProgramPanel({ resumeWalk = false } = {}) {
   if (!isProgramOpen()) return;
+  const backToWalk = resumeWalk && programResumeWalk;
+  programResumeWalk = false;
   robot.endProgramming();
   robot.hmi?.draw("TOQUE PARA PROGRAMAR", "idle");
   programPanel.classList.remove("is-open");
@@ -957,13 +963,14 @@ function closeProgramPanel() {
   currentStep = -1;
   setProgramRunningUI(false);
   setProgramStatus("manual", "Manual · mova o robô e ensine os pontos");
+  if (backToWalk) setTimeout(startWalkHere, 140);
 }
 
 panelProgramBtn.addEventListener("click", openProgramPanel);
 panelBlocksBtn.addEventListener("click", () => {
   if (selected && selected.station) openBlockLab(selected);
 });
-programCloseBtn.addEventListener("click", closeProgramPanel);
+programCloseBtn.addEventListener("click", () => closeProgramPanel({ resumeWalk: true }));
 
 document.querySelectorAll(".pg-jog").forEach((btn) => {
   let timer = null;

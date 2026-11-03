@@ -21,7 +21,7 @@
   height: calc(100% - 178px);
   display: flex;
   flex-direction: column;
-  pointer-events: auto;
+  pointer-events: none;
   background: linear-gradient(180deg, rgba(21, 26, 32, 0.93) 0%, rgba(11, 14, 18, 0.95) 100%);
   border: 1px solid var(--stroke-strong);
   border-radius: 16px;
@@ -35,6 +35,7 @@
 
 .bl-layer.is-open .bl-window {
   transform: none;
+  pointer-events: auto;
 }
 
 /* ---------- header ---------- */
