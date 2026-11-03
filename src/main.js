@@ -85,10 +85,17 @@ const walk = createWalk({
   dom: renderer.domElement,
   controls,
   onStop: () => syncWalkButton(),
-  onInspect: () => inspectCenter(),
+  onInspect: (ev) => inspectCenter(ev),
 });
 
-const studio = createDevStudio();
+let studioResumeWalk = false;
+const studio = createDevStudio({
+  // Same deal as Block Lab: closing the overlay hands control back to first person.
+  onClose: () => {
+    if (studioResumeWalk) setTimeout(startWalkHere, 140);
+    studioResumeWalk = false;
+  },
+});
 const blockLab = createBlockLab({
   onParts: (n) => addParts(n),
   // Esc is Chrome's own pointer-lock exit gesture, so grab the lock just after the key event.
@@ -140,6 +147,7 @@ function openStudio() {
   closePanel();
   closeProgramPanel();
   blockLab.close();
+  studioResumeWalk = walk.active;
   if (walk.active) {
     walk.stop();
     syncWalkButton();
@@ -334,26 +342,55 @@ const crosshair = document.getElementById("crosshair");
 const crosshairHint = crosshair.querySelector(".ch-hint");
 let aimTimer = 0;
 
-function pickAtCenter(maxHmi, maxEntry) {
+function pickAtCenter(maxHmi, maxEntry, maxDev = 4.5) {
   raycaster.setFromCamera(CENTER, camera);
   const hmi = raycaster.intersectObjects(hmiHits, false)[0];
-  if (hmi && hmi.distance <= maxHmi) {
-    return { type: "hmi", station: hmiToStation.get(hmi.object) || null };
-  }
+  const dev = raycaster.intersectObjects(devScreens, false)[0];
   const hit = raycaster.intersectObjects(hitboxes, false)[0];
-  if (hit && hit.distance <= maxEntry) {
-    return { type: "entry", entry: hitToEntry.get(hit.object) || null };
+  const hits = [];
+  if (hmi && hmi.distance <= maxHmi) {
+    hits.push({ type: "hmi", station: hmiToStation.get(hmi.object) || null, d: hmi.distance });
   }
-  return null;
+  if (dev && dev.distance <= maxDev) hits.push({ type: "dev", d: dev.distance });
+  if (hit && hit.distance <= maxEntry) {
+    hits.push({ type: "entry", entry: hitToEntry.get(hit.object) || null, d: hit.distance });
+  }
+  hits.sort((a, b) => a.d - b.d);
+  return hits[0] || null;
 }
 
-function inspectCenter() {
+function openHmi(station) {
+  if (!station) return;
+  if (station.isRobot) openProgramPanel();
+  else openBlockLab(station);
+}
+
+function inspectCenter(ev) {
   if (!walk.active) return;
+  // Without pointer lock the cursor still has a real position: inspect under it.
+  if (ev && !walk.isLocked() && typeof ev.clientX === "number") {
+    const target = pickInteractable(ev.clientX, ev.clientY);
+    if (target?.type === "hmi" && target.station) {
+      openHmi(target.station);
+      return;
+    }
+    if (target?.type === "dev") {
+      openStudio();
+      return;
+    }
+    const entry = pickEntry(ev.clientX, ev.clientY);
+    if (entry) select(entry);
+    else closePanel();
+    return;
+  }
   const aim = pickAtCenter(5.5, 7.5);
   if (aim?.type === "hmi" && aim.station) {
-    if (aim.station.isRobot) openProgramPanel();
-    else openBlockLab(aim.station);
-  } else if (aim?.type === "entry" && aim.entry) select(aim.entry);
+    openHmi(aim.station);
+  } else if (aim?.type === "dev") {
+    openStudio();
+  } else if (aim?.type === "entry" && aim.entry) {
+    select(aim.entry);
+  }
 }
 
 function updateAim(dt) {
@@ -371,6 +408,9 @@ function updateAim(dt) {
     crosshairHint.textContent = aim.station.isRobot
       ? "E · programar robô"
       : `E · programar ${aim.station.code}`;
+  } else if (aim?.type === "dev") {
+    crosshair.classList.add("is-target");
+    crosshairHint.textContent = "E · abrir Dev Lab";
   } else if (aim?.type === "entry" && aim.entry) {
     crosshair.classList.add("is-target");
     crosshairHint.textContent = aim.entry.isRobot
@@ -525,6 +565,7 @@ function syncWalkButton() {
 /* Resume walking from wherever the camera is, so leaving a panel keeps us on the spot. */
 function startWalkHere() {
   if (vr.active) return;
+  tween = null;
   const dir = camera.getWorldDirection(new THREE.Vector3());
   walk.start({
     x: camera.position.x,

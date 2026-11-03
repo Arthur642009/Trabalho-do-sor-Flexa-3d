@@ -704,7 +704,7 @@ function highlightCode(source, lang) {
 /* studio                                                              */
 /* ------------------------------------------------------------------ */
 
-export function createDevStudio() {
+export function createDevStudio({ onClose } = {}) {
   const saved = readStore();
   const state = {
     open: false,
@@ -1139,15 +1139,15 @@ export function createDevStudio() {
     btn.addEventListener("click", () => setTermTab(btn.dataset.term));
   });
 
-  layer.querySelector(".st-close").addEventListener("click", close);
-  layer.querySelector(".studio-backdrop").addEventListener("click", close);
+  layer.querySelector(".st-close").addEventListener("click", () => closeByUser());
+  layer.querySelector(".studio-backdrop").addEventListener("click", () => closeByUser());
   guideBtn.addEventListener("click", () => setGuide(!state.guideOn));
 
   document.addEventListener("keydown", (ev) => {
     if (!state.open) return;
     if (ev.key === "Escape") {
       ev.preventDefault();
-      close();
+      closeByUser();
       return;
     }
     if (ev.key === "F5" || (ev.ctrlKey && ev.key === "Enter")) {
@@ -1174,6 +1174,12 @@ export function createDevStudio() {
     layer.classList.remove("is-open");
     layer.setAttribute("aria-hidden", "true");
     codeEl.blur();
+  }
+
+  function closeByUser() {
+    if (!state.open) return;
+    close();
+    onClose?.();
   }
 
   function isOpen() {

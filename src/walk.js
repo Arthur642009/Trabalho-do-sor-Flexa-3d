@@ -17,6 +17,8 @@ export function createWalk({ camera, dom, controls, onStop, onInspect }) {
   let dragging = false;
   let lastX = 0;
   let lastY = 0;
+  let downX = 0;
+  let downY = 0;
   const keys = new Set();
 
   function requestLock() {
@@ -99,22 +101,29 @@ export function createWalk({ camera, dom, controls, onStop, onInspect }) {
   dom.addEventListener("pointerdown", (ev) => {
     if (!active) return;
     if (locked) {
-      if (ev.button === 0) onInspect?.();
+      if (ev.button === 0) onInspect?.(ev);
       return;
     }
     if (ev.button !== 0) return;
     requestLock();
     dragging = true;
+    downX = ev.clientX;
+    downY = ev.clientY;
     lastX = ev.clientX;
     lastY = ev.clientY;
     dom.setPointerCapture?.(ev.pointerId);
   });
 
-  const endDrag = () => {
+  dom.addEventListener("pointerup", (ev) => {
+    // Pointer lock may be unavailable: treat a click (no drag) as an inspect.
+    if (active && !locked && dragging && ev.button === 0) {
+      if (Math.hypot(ev.clientX - downX, ev.clientY - downY) < 6) onInspect?.(ev);
+    }
     dragging = false;
-  };
-  dom.addEventListener("pointerup", endDrag);
-  dom.addEventListener("pointercancel", endDrag);
+  });
+  dom.addEventListener("pointercancel", () => {
+    dragging = false;
+  });
   window.addEventListener("blur", () => keys.clear());
 
   window.addEventListener("keydown", (ev) => {

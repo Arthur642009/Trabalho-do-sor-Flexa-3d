@@ -3,18 +3,90 @@
 const STORE_KEY = "senai.blocks.v1";
 
 const BLOCKS = {
-  eject: { label: "Ejetar peça", hint: "cilindro de ejeção", dur: 2.2, tone: "blue" },
-  press: { label: "Prensar peça", hint: "prensa pneumática", dur: 2.6, tone: "blue" },
-  rotate: { label: "Girar mesa 90°", hint: "mesa indexada", dur: 2.6, tone: "blue" },
-  assemble: { label: "Montar conjunto", hint: "prensa + alimentador", dur: 3.2, tone: "blue" },
-  store: { label: "Guardar bandeja", hint: "estante de níveis", dur: 2.4, tone: "blue" },
-  belt: { label: "Transportar peça", hint: "esteira + sensores", dur: 3.4, tone: "blue" },
-  diverge: { label: "Desviar peça", hint: "cilindro lateral", dur: 1.6, tone: "teal" },
-  piece: { label: "Contar peça", hint: "sensor de saída", dur: 0.6, tone: "green" },
-  signalGreen: { label: "Sinal verde", hint: "torre luminosa", dur: 0.8, tone: "green" },
-  signalAmber: { label: "Sinal amarelo", hint: "torre luminosa", dur: 0.8, tone: "amber" },
-  signalOff: { label: "Apagar sinal", hint: "torre luminosa", dur: 0.6, tone: "grey" },
-  wait: { label: "Aguardar 1 s", hint: "temporizador", dur: 1.0, tone: "amber" },
+  eject: {
+    label: "Ejetar peça",
+    hint: "cilindro de ejeção",
+    dur: 2.2,
+    tone: "blue",
+    tip: "O cilindro de ejeção empurra a peça de baixo do magazine para a calha de saída. Use este bloco antes de contar a peça.",
+  },
+  press: {
+    label: "Prensar peça",
+    hint: "prensa pneumática",
+    dur: 2.6,
+    tone: "blue",
+    tip: "A prensa desce sob pressão controlada até encostar na peça. O manômetro mostra a força aplicada — pressão alta demais pode marcar a peça.",
+  },
+  rotate: {
+    label: "Girar mesa 90°",
+    hint: "mesa indexada",
+    dur: 2.6,
+    tone: "blue",
+    tip: "O atuador rotativo gira a mesa em 90° por ciclo, levando a peça à próxima posição de trabalho. Cada comando avança um quarto de volta.",
+  },
+  assemble: {
+    label: "Montar conjunto",
+    hint: "prensa + alimentador",
+    dur: 3.2,
+    tone: "blue",
+    tip: "O alimentador desce o inserto, a prensa fixa a tampa e o cilindro lateral empurra o conjunto montado para a saída.",
+  },
+  store: {
+    label: "Guardar bandeja",
+    hint: "estante de níveis",
+    dur: 2.4,
+    tone: "blue",
+    tip: "A peça é deslocada para a posição de armazenagem na prateleira. O sinal amarelo indica operação em andamento.",
+  },
+  belt: {
+    label: "Transportar peça",
+    hint: "esteira + sensores",
+    dur: 3.4,
+    tone: "blue",
+    tip: "A esteira conduz as peças no sentido da saída. Os sensores fotoelétricos detectam a passagem na entrada e na saída.",
+  },
+  diverge: {
+    label: "Desviar peça",
+    hint: "cilindro lateral",
+    dur: 1.6,
+    tone: "teal",
+    tip: "O desviador empurra a peça que estiver sob ele para a calha lateral. Se não houver peça na posição, o cilindro atua sem mover nada.",
+  },
+  piece: {
+    label: "Contar peça",
+    hint: "sensor de saída",
+    dur: 0.6,
+    tone: "green",
+    tip: "Registra uma peça produzida, como o contador do CLP. Coloque este bloco sempre depois de mover a peça.",
+  },
+  signalGreen: {
+    label: "Sinal verde",
+    hint: "torre luminosa",
+    dur: 0.8,
+    tone: "green",
+    tip: "Acende o verde da torre: estação liberada, sem falhas.",
+  },
+  signalAmber: {
+    label: "Sinal amarelo",
+    hint: "torre luminosa",
+    dur: 0.8,
+    tone: "amber",
+    tip: "Acende o amarelo da torre: atenção, operação em andamento ou ciclo em espera.",
+  },
+  signalOff: {
+    label: "Apagar sinal",
+    hint: "torre luminosa",
+    dur: 0.6,
+    tone: "grey",
+    tip: "Apaga a torre luminosa ao final da sequência.",
+  },
+  wait: {
+    label: "Aguardar 1 s",
+    hint: "temporizador",
+    dur: 1.0,
+    tone: "amber",
+    tip: "Pausa de 1 segundo, como o timer do CLP. Útil entre o posicionamento e a prensagem.",
+  },
 };
 
 const KIND_ACTION = {
@@ -130,6 +202,19 @@ export function createBlockLab({ onParts, onClose } = {}) {
             <span class="bl-save"></span>
           </footer>
         </main>
+        <aside class="bl-info">
+          <div class="bl-col-head"><span>SOBRE A MÁQUINA</span></div>
+          <p class="bl-info-desc"></p>
+          <div class="bl-info-tech"></div>
+          <div class="bl-info-seq">
+            <span class="bl-info-seq-tag">SEQUÊNCIA SUGERIDA</span>
+            <p class="bl-info-seq-text"></p>
+          </div>
+          <div class="bl-tip">
+            <span class="bl-tip-tag">DICA</span>
+            <p class="bl-tip-text"></p>
+          </div>
+        </aside>
       </div>
     </section>`;
 
@@ -150,9 +235,41 @@ export function createBlockLab({ onParts, onClose } = {}) {
   const clearBtn = layer.querySelector(".bl-clear");
   const partsEl = layer.querySelector(".bl-parts b");
   const saveEl = layer.querySelector(".bl-save");
+  const infoDescEl = layer.querySelector(".bl-info-desc");
+  const infoTechEl = layer.querySelector(".bl-info-tech");
+  const infoSeqEl = layer.querySelector(".bl-info-seq-text");
+  const tipTextEl = layer.querySelector(".bl-tip-text");
 
   let drag = null;
   let justDragged = false;
+  let stationTip = "";
+
+  function showTip(text) {
+    tipTextEl.textContent = text || "";
+    tipTextEl.animate(
+      [
+        { opacity: 0, transform: "translateY(2px)" },
+        { opacity: 1, transform: "none" },
+      ],
+      { duration: 180, easing: "ease-out" }
+    );
+  }
+
+  function tipFor(id) {
+    return BLOCKS[id]?.tip || stationTip;
+  }
+
+  function onTipOver(ev) {
+    const node = ev.target.closest(".bl-pal, .bl-step");
+    if (!node) return;
+    if (node.classList.contains("bl-pal")) showTip(tipFor(node.dataset.id));
+    else showTip(tipFor(state.steps[Number(node.dataset.i)]));
+  }
+
+  function onTipOut(ev) {
+    if (ev.relatedTarget && ev.currentTarget.contains(ev.relatedTarget)) return;
+    showTip(stationTip);
+  }
 
   const rows = () => Array.from(listEl.querySelectorAll(".bl-step"));
 
@@ -255,6 +372,7 @@ export function createBlockLab({ onParts, onClose } = {}) {
     state.steps.splice(at, 0, id);
     markDirty();
     renderList();
+    showTip(tipFor(id));
     setStatus("idle", "Programa alterado · execute para testar");
     listEl.children[at]?.scrollIntoView({ block: "nearest", behavior: "smooth" });
   }
@@ -346,6 +464,13 @@ export function createBlockLab({ onParts, onClose } = {}) {
     }
     addBlock(btn.dataset.id);
   });
+
+  for (const host of [blocksEl, listEl]) {
+    host.addEventListener("pointerover", onTipOver);
+    host.addEventListener("pointerout", onTipOut);
+  }
+  blocksEl.addEventListener("focusin", onTipOver);
+  blocksEl.addEventListener("focusout", onTipOut);
 
   /* run -------------------------------------------------------------- */
 
@@ -467,6 +592,16 @@ export function createBlockLab({ onParts, onClose } = {}) {
     kickerEl.textContent = `${station.code} · ${station.type.toUpperCase()}`;
     titleEl.textContent = `${station.name} · blocos`;
     saveEl.textContent = saved ? "programa salvo neste navegador" : "programa de exemplo";
+
+    infoDescEl.textContent = station.desc || "";
+    infoTechEl.innerHTML = "";
+    (station.tech || []).forEach((t) => infoTechEl.appendChild(el("span", "bl-chip", t)));
+    infoSeqEl.textContent = defaultSteps(station.kind)
+      .map((id) => BLOCKS[id]?.label)
+      .filter(Boolean)
+      .join(" → ");
+    stationTip = station.tip || BLOCKS[defaultSteps(station.kind)[0]]?.tip || "";
+    showTip(stationTip);
 
     renderPalette();
     renderList();
