@@ -8,7 +8,7 @@ const BLOCKS = {
     hint: "cilindro de ejeção",
     dur: 2.2,
     tone: "blue",
-    tip: "O cilindro de ejeção empurra a peça de baixo do magazine para a calha de saída. Use este bloco antes de contar a peça.",
+    tip: "O cilindro de ejeção empurra a peça de baixo do magazine para a rampa de saída. O sensor indutivo confirma a peça e o sensor óptico do fim da rampa avisa quando a calha acumulou as 8 peças.",
   },
   press: {
     label: "Prensar peça",
@@ -45,12 +45,26 @@ const BLOCKS = {
     tone: "blue",
     tip: "A esteira conduz as peças no sentido da saída. Os sensores fotoelétricos detectam a passagem na entrada e na saída.",
   },
-  diverge: {
-    label: "Desviar peça",
-    hint: "cilindro lateral",
-    dur: 1.6,
+  sortMetal: {
+    label: "Separar metálica",
+    hint: "rampa 1 · indutivo",
+    dur: 3.0,
+    tone: "blue",
+    tip: "O sensor indutivo identifica o metal. A esteira alinha a peça com o cilindro — avançando ou recuando se ela passou um pouco — e o cilindro 1 a empurra para a rampa das metálicas.",
+  },
+  sortColor: {
+    label: "Separar colorida",
+    hint: "rampa 2 · óptico",
+    dur: 3.0,
     tone: "teal",
-    tip: "O desviador empurra a peça que estiver sob ele para a calha lateral. Se não houver peça na posição, o cilindro atua sem mover nada.",
+    tip: "O sensor óptico detecta reflexão no plástico colorido. A esteira alinha a peça com o cilindro — avançando ou recuando se ela passou um pouco — e o cilindro 2 a desvia para a rampa do meio.",
+  },
+  sortBlack: {
+    label: "Separar preta",
+    hint: "rampa 3 · sem reflexão",
+    dur: 3.0,
+    tone: "grey",
+    tip: "O plástico preto não reflete: o sensor óptico fica desligado. A esteira alinha a peça com o cilindro — avançando ou recuando se ela passou um pouco — e o cilindro 3 a empurra para a última rampa.",
   },
   piece: {
     label: "Contar peça",
@@ -123,14 +137,18 @@ function fmtDur(seconds) {
 }
 
 function paletteFor(kind) {
-  const action = KIND_ACTION[kind];
-  const ids = [action];
-  if (kind === "conveyor") ids.push("diverge");
+  const ids =
+    kind === "conveyor"
+      ? ["belt", "sortMetal", "sortColor", "sortBlack"]
+      : [KIND_ACTION[kind]];
   ids.push("piece", "wait", "signalGreen", "signalAmber", "signalOff");
   return ids.filter((id) => BLOCKS[id]);
 }
 
 function defaultSteps(kind) {
+  if (kind === "conveyor") {
+    return ["sortMetal", "piece", "sortColor", "piece", "sortBlack", "piece"];
+  }
   const action = KIND_ACTION[kind];
   return [action, "piece", "wait"].filter((id) => BLOCKS[id]);
 }
@@ -511,7 +529,7 @@ export function createBlockLab({ onParts, onClose } = {}) {
 
   function finish() {
     state.running = false;
-    state.station?.setProgramMode?.(false);
+    state.station?.setProgramMode?.(false, true);
     state.station?.hmi?.draw("PROGRAMA CONCLUÍDO", "done");
     setStatus(
       "done",
@@ -533,6 +551,16 @@ export function createBlockLab({ onParts, onClose } = {}) {
     updateControls();
   }
 
+  function halt(statusText, message, kind = "error") {
+    state.running = false;
+    state.station?.setProgramMode?.(false, true);
+    state.station?.hmi?.draw(statusText, kind);
+    setStatus(kind === "error" ? "error" : "done", message);
+    clearHighlight();
+    updateLoop();
+    updateControls();
+  }
+
   function update(dt) {
     if (!state.running || !state.station) return;
     const id = state.steps[state.index];
@@ -543,7 +571,11 @@ export function createBlockLab({ onParts, onClose } = {}) {
     }
     state.elapsed += dt;
     const p = Math.min(1, state.elapsed / def.dur);
-    state.station.programStep?.(id, p);
+    const res = state.station.programStep?.(id, p);
+    if (res && res.stop) {
+      halt(res.stop, res.message || "Programa interrompido", res.kind);
+      return;
+    }
     const row = rows()[state.index];
     if (row) row.style.setProperty("--p", `${(p * 100).toFixed(1)}%`);
 
@@ -619,7 +651,7 @@ export function createBlockLab({ onParts, onClose } = {}) {
     if (!state.open) return;
     if (state.running) stop();
     state.open = false;
-    state.station?.setProgramMode?.(false);
+    state.station?.setProgramMode?.(false, true);
     state.station?.hmi?.draw("TOQUE PARA PROGRAMAR", "idle");
     layer.classList.remove("is-open");
     layer.setAttribute("aria-hidden", "true");

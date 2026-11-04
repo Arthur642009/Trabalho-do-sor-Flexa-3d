@@ -94,6 +94,7 @@ const studio = createDevStudio({
   onClose: () => {
     if (studioResumeWalk) setTimeout(startWalkHere, 140);
     studioResumeWalk = false;
+    if (sit) cancelSit(true);
   },
 });
 const blockLab = createBlockLab({
@@ -128,7 +129,7 @@ function pickInteractable(clientX, clientY) {
   if (hmi && (!dev || hmi.distance <= dev.distance)) {
     return { type: "hmi", station: hmiToStation.get(hmi.object) || null };
   }
-  if (dev) return { type: "dev" };
+  if (dev) return { type: "dev", monitor: dev.object.parent };
   return null;
 }
 
@@ -143,7 +144,7 @@ function openBlockLab(station) {
 }
 
 function openStudio() {
-  if (studio.isOpen() || vr.active) return;
+  if (studio.isOpen() || vr.active || sit) return;
   closePanel();
   closeProgramPanel();
   blockLab.close();
@@ -154,6 +155,83 @@ function openStudio() {
   }
   tween = null;
   studio.open();
+}
+
+/* ------------------------------------------------------------------ */
+/* sitting down at an office PC                                        */
+/* ------------------------------------------------------------------ */
+
+let sit = null;
+
+function cancelSit(restore) {
+  if (!sit) return;
+  const back = sit.back;
+  sit = null;
+  controls.enabled = true;
+  if (!restore) return;
+  tween = {
+    p0: camera.position.clone(),
+    t0: controls.target.clone(),
+    p1: back.pos.clone(),
+    t1: back.target.clone(),
+    t: 0,
+    dur: 0.9,
+    onDone: () => {
+      if (back.walk) startWalkHere();
+    },
+  };
+}
+
+/* Fly to the chair, drop into the seated eye height, then open the Dev Lab. */
+function beginSit(monitor) {
+  const seat = monitor?.userData?.seat;
+  if (!seat) {
+    openStudio();
+    return;
+  }
+  if (sit || studio.isOpen() || vr.active) return;
+
+  // walking has no up-to-date orbit target, so rebuild it from the look direction
+  const walking = walk.active;
+  const dir = camera.getWorldDirection(new THREE.Vector3());
+  sit = {
+    back: {
+      pos: camera.position.clone(),
+      target: walking
+        ? camera.position.clone().addScaledVector(dir, 3)
+        : controls.target.clone(),
+      walk: walking,
+    },
+  };
+
+  closePanel();
+  closeProgramPanel();
+  blockLab.close();
+  studioResumeWalk = false;
+  if (walk.active) {
+    walk.stop();
+    syncWalkButton();
+  }
+  controls.enabled = false;
+  tween = {
+    p0: camera.position.clone(),
+    t0: controls.target.clone(),
+    p1: seat.stand.clone(),
+    t1: seat.look.clone(),
+    t: 0,
+    dur: 1.05,
+    onDone: () => {
+      tween = {
+        p0: camera.position.clone(),
+        t0: seat.look.clone(),
+        p1: seat.eye.clone(),
+        t1: seat.look.clone(),
+        t: 0,
+        dur: 0.7,
+        onDone: () => studio.open(),
+      };
+    },
+  };
 }
 
 /* ------------------------------------------------------------------ */
@@ -292,7 +370,7 @@ renderer.domElement.addEventListener("pointerdown", (ev) => {
 });
 
 renderer.domElement.addEventListener("pointerup", (ev) => {
-  if (walk.active || blockLab.isOpen()) return;
+  if (walk.active || blockLab.isOpen() || sit) return;
   const moved = Math.hypot(ev.clientX - down.x, ev.clientY - down.y);
   if (moved > 7 || performance.now() - down.t > 700) return;
   const target = pickInteractable(ev.clientX, ev.clientY);
@@ -302,7 +380,7 @@ renderer.domElement.addEventListener("pointerup", (ev) => {
     return;
   }
   if (target && target.type === "dev") {
-    openStudio();
+    beginSit(target.monitor);
     return;
   }
   const entry = pickEntry(ev.clientX, ev.clientY);
@@ -312,7 +390,7 @@ renderer.domElement.addEventListener("pointerup", (ev) => {
 
 let hoverCheck = 0;
 renderer.domElement.addEventListener("pointermove", (ev) => {
-  if (walk.active || blockLab.isOpen()) return;
+  if (walk.active || blockLab.isOpen() || sit) return;
   const now = performance.now();
   if (now - hoverCheck < 90) return;
   hoverCheck = now;
@@ -351,7 +429,9 @@ function pickAtCenter(maxHmi, maxEntry, maxDev = 4.5) {
   if (hmi && hmi.distance <= maxHmi) {
     hits.push({ type: "hmi", station: hmiToStation.get(hmi.object) || null, d: hmi.distance });
   }
-  if (dev && dev.distance <= maxDev) hits.push({ type: "dev", d: dev.distance });
+  if (dev && dev.distance <= maxDev) {
+    hits.push({ type: "dev", monitor: dev.object.parent, d: dev.distance });
+  }
   if (hit && hit.distance <= maxEntry) {
     hits.push({ type: "entry", entry: hitToEntry.get(hit.object) || null, d: hit.distance });
   }
@@ -375,7 +455,7 @@ function inspectCenter(ev) {
       return;
     }
     if (target?.type === "dev") {
-      openStudio();
+      beginSit(target.monitor);
       return;
     }
     const entry = pickEntry(ev.clientX, ev.clientY);
@@ -387,7 +467,7 @@ function inspectCenter(ev) {
   if (aim?.type === "hmi" && aim.station) {
     openHmi(aim.station);
   } else if (aim?.type === "dev") {
-    openStudio();
+    beginSit(aim.monitor);
   } else if (aim?.type === "entry" && aim.entry) {
     select(aim.entry);
   }
@@ -454,6 +534,7 @@ let tween = null;
 
 function setView(name, posOverride, targetOverride) {
   if (vr.active) return;
+  cancelSit(false);
   blockLab.close();
   if (walk.active) {
     walk.stop();
@@ -588,6 +669,7 @@ vr.onChange((on) => {
   syncVRButton(on);
   if (on) {
     tween = null;
+    cancelSit(false);
     closePanel();
     closeProgramPanel();
     studio.close();
@@ -1186,11 +1268,17 @@ function animate() {
       const k = easeInOut(Math.min(1, tween.t / tween.dur));
       camera.position.lerpVectors(tween.p0, tween.p1, k);
       controls.target.lerpVectors(tween.t0, tween.t1, k);
-      if (k >= 1) tween = null;
+      // orbit controls clamp the polar angle, which would lift the seated view
+      camera.lookAt(controls.target);
+      if (k >= 1) {
+        const done = tween.onDone;
+        tween = null;
+        if (done) done();
+      }
     }
     walk.update(dt);
     updateAim(dt);
-    if (!walk.active) controls.update();
+    if (!walk.active && !sit && !tween) controls.update();
   }
 
   if (selectionMarker) {
@@ -1257,9 +1345,13 @@ if (import.meta.env.DEV) {
     closeProgramPanel,
     studio,
     openStudio,
+    beginSit,
     blockLab,
     openBlockLab,
     hmiHits,
+    get sitting() {
+      return !!sit;
+    },
   };
 }
 

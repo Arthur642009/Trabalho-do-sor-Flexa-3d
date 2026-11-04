@@ -188,6 +188,37 @@ export function createPallet(mats) {
   return { group, slots, usable };
 }
 
+/** Puck whose finish can be swapped between steel and the two plastic classes. */
+export function createSortPuck(mats, r = 0.032, h = 0.022) {
+  const g = new THREE.Group();
+  const body = new THREE.Mesh(new THREE.CylinderGeometry(r, r, h, 20), mats.steel);
+  const band = new THREE.Mesh(new THREE.CylinderGeometry(r * 1.005, r * 1.005, 0.006, 20), mats.steel);
+  const top = new THREE.Mesh(
+    new THREE.CylinderGeometry(r * 0.62, r * 0.55, 0.006, 16),
+    mats.chrome
+  );
+  top.position.y = h / 2 + 0.003;
+  for (const m of [body, band, top]) {
+    m.castShadow = true;
+    m.receiveShadow = true;
+  }
+  g.add(body, band, top);
+
+  const FINISH = {
+    metal: [mats.steel, mats.chrome, mats.steel],
+    colored: [mats.bluePlastic, mats.orangePlastic, mats.orangePlastic],
+    black: [mats.blackPlastic, mats.blackPlastic, mats.blackPlastic],
+  };
+  g.userData.setType = (type) => {
+    const [b, t, s] = FINISH[type] || FINISH.metal;
+    body.material = b;
+    top.material = t;
+    band.material = s;
+  };
+  g.userData.setType("metal");
+  return g;
+}
+
 /** Small steel puck, used along the line. */
 export function createPuck(mats, r = 0.028, h = 0.018) {
   const g = new THREE.Group();

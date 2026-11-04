@@ -7,7 +7,7 @@ import {
   clamp01,
 } from "./utils.js";
 import { makePlateMaterial } from "./materials.js";
-import { createPuck, createTray } from "./parts.js";
+import { createPuck, createSortPuck, createTray } from "./parts.js";
 import { createHmi } from "./hmi.js";
 
 export const TOP_Y = 0.945;
@@ -112,13 +112,12 @@ function buildDistribution(mats, renderer, code) {
   const mx = -0.06;
   const PUCK_R = 0.036;
   const PUCK_H = 0.026;
-  const PITCH = 0.032;
+  const STACK_PITCH = 0.029;
   const BASE_Y = B + 0.043;
-  const TRAVEL = 0.08;
-  const OUT_LEFT = -0.4;
+  const TRAVEL = 0.11;
   const COUNT = 8;
 
-  // transparent stack tube, open at the bottom so the ejector can reach the puck
+  // transparent stack tube, open just above the ejector pocket
   const magazine = new THREE.Group();
   const acrylic = new THREE.MeshPhysicalMaterial({
     color: 0xd7e6ea,
@@ -130,43 +129,105 @@ function buildDistribution(mats, renderer, code) {
     side: THREE.DoubleSide,
     depthWrite: false,
   });
-  magazine.add(cyl(0.07, 0.07, 0.02, mats.graphite, 22, mx, B + 0.02, 0));
-  const tubeH = 0.266;
+  magazine.add(cyl(0.053, 0.053, 0.02, mats.graphite, 22, mx, B + 0.02, 0));
+  const tubeBottom = BASE_Y + PUCK_H / 2 + 0.003;
+  const tubeH = 0.237;
   const tube = new THREE.Mesh(
     new THREE.CylinderGeometry(0.052, 0.052, tubeH, 24, 1, true),
     acrylic
   );
-  tube.position.set(mx, B + 0.066 + tubeH / 2, 0);
+  tube.position.set(mx, tubeBottom + tubeH / 2, 0);
   magazine.add(tube);
-  magazine.add(cyl(0.06, 0.06, 0.014, mats.graphite, 22, mx, B + 0.066 + tubeH, 0));
+  magazine.add(cyl(0.056, 0.056, 0.014, mats.graphite, 22, mx, tubeBottom + tubeH, 0));
 
   const pucks = [];
   for (let i = 0; i < COUNT; i++) {
     const p = createPuck(mats, PUCK_R, PUCK_H);
-    p.position.set(mx, BASE_Y + i * PITCH, 0);
+    p.position.set(mx, BASE_Y + i * STACK_PITCH, 0);
     magazine.add(p);
     pucks.push(p);
   }
   g.add(magazine);
 
-  // ejector: pad rests against the bottom puck, stroke clears it from the stack
-  const ejector = pneumaticCylinder(mats, { len: 0.14, r: 0.02, stroke: 0.075 });
+  // ejector: pad touches the bottom puck and pushes it onto the outfeed ramp
+  const ejector = pneumaticCylinder(mats, { len: 0.14, r: 0.02, stroke: TRAVEL });
   ejector.rotation.z = Math.PI / 2;
-  ejector.position.set(0.119, BASE_Y, 0);
+  ejector.position.set(0.1275, BASE_Y, 0);
   g.add(ejector);
   g.add(box(0.06, 0.023, 0.05, mats.alu, 0.1, B + 0.0115, 0));
-  g.add(cyl(0.026, 0.026, 0.024, mats.aluDark, 18, 0.07, BASE_Y, 0, { rotZ: Math.PI / 2 }));
+  g.add(cyl(0.024, 0.024, 0.024, mats.aluDark, 18, 0.075, BASE_Y, 0, { rotZ: Math.PI / 2 }));
 
-  // outfeed rail, level with the magazine base
-  g.add(box(0.3, 0.03, 0.14, mats.alu, -0.25, B + 0.015, 0));
-  for (const sz of [-1, 1]) {
-    g.add(box(0.3, 0.03, 0.008, mats.alu, -0.25, B + 0.045, sz * 0.066));
+  // outfeed ramp: accumulates all 8 pieces in a single queue along +z
+  const CHUTE_X = -0.17;
+  const CHUTE_W = 0.11;
+  const CHUTE_Z0 = -0.08;
+  const CHUTE_LEN = 0.7;
+  const CHUTE_ZC = CHUTE_Z0 + CHUTE_LEN / 2;
+  const CHUTE_TILT = 0.022;
+  const CHUTE_TOP0 = B + 0.03;
+  const PITCH = 0.08;
+
+  const chute = new THREE.Group();
+  chute.position.set(CHUTE_X, CHUTE_TOP0, 0);
+  chute.rotation.x = CHUTE_TILT;
+  chute.add(box(CHUTE_W, 0.012, CHUTE_LEN, mats.alu, 0, -0.006, CHUTE_ZC));
+  for (const sx of [-1, 1]) {
+    chute.add(
+      box(0.006, 0.02, CHUTE_LEN, mats.alu, sx * (CHUTE_W / 2 + 0.003), 0.004, CHUTE_ZC)
+    );
+  }
+  chute.add(box(CHUTE_W + 0.018, 0.032, 0.012, mats.aluDark, 0, 0.01, CHUTE_Z0 + CHUTE_LEN));
+  g.add(chute);
+  for (const z of [0.02, 0.35]) {
+    const h = CHUTE_TOP0 - 0.012 - z * Math.sin(CHUTE_TILT) - B;
+    g.add(box(0.05, h, 0.05, mats.aluDark, CHUTE_X, B + h / 2, z));
   }
 
-  // presence sensor on its own post
-  const sensor = sensorBeam(mats, mx + 0.02, B + 0.09, 0.09);
-  g.add(sensor);
-  g.add(box(0.014, 0.065, 0.014, mats.aluDark, mx + 0.02, B + 0.0325, 0.09));
+  // inductive sensor at the ejector exit + reflective sensor at the end of the ramp
+  const beamMatA = new THREE.MeshBasicMaterial({
+    color: 0x49f08a,
+    transparent: true,
+    opacity: 0.55,
+    depthWrite: false,
+  });
+  const beamMatB = new THREE.MeshBasicMaterial({
+    color: 0xffb020,
+    transparent: true,
+    opacity: 0.55,
+    depthWrite: false,
+  });
+  function outfeedSensor(z, y, faceMat, beamMat, onMat) {
+    const head = new THREE.Group();
+    head.add(box(0.028, 0.044, 0.028, mats.graphite, 0, 0, 0));
+    head.add(cyl(0.009, 0.009, 0.004, faceMat, 12, 0.016, 0, 0, { rotZ: Math.PI / 2 }));
+    const led = cyl(0.0045, 0.0045, 0.006, mats.ledOff, 8, 0, 0.026, 0);
+    head.add(led);
+    head.position.set(-0.255, y, z);
+    g.add(head);
+    const postH = y - 0.022 - B;
+    g.add(box(0.012, postH, 0.012, mats.aluDark, -0.255, B + postH / 2, z));
+    const beam = box(0.15, 0.0025, 0.0025, beamMat, -0.165, y, z, {
+      cast: false,
+      receive: false,
+    });
+    beam.visible = false;
+    g.add(beam);
+    return { led, beam, onMat };
+  }
+  const sensorOut = outfeedSensor(
+    -0.02,
+    BASE_Y + PUCK_H / 2,
+    mats.bluePlastic,
+    beamMatA,
+    mats.ledBlue
+  );
+  const sensorEnd = outfeedSensor(
+    (COUNT - 1) * PITCH,
+    BASE_Y + PUCK_H / 2 - (COUNT - 1) * PITCH * Math.sin(CHUTE_TILT),
+    mats.glassClear,
+    beamMatB,
+    mats.ledAmber
+  );
 
   // pneumatics
   const valve = valveBlock(mats);
@@ -174,8 +235,9 @@ function buildDistribution(mats, renderer, code) {
   g.add(valve);
   g.add(hose([0.3, B + 0.09, 0.16], [0.088, B + 0.062, 0.004], 0.0042, mats.blueTube, 0.04));
   g.add(hose([0.3, B + 0.09, 0.2], [0.01, B + 0.062, -0.004], 0.0042, mats.blueTube, 0.05, -0.02));
-  g.add(hose([0.3, B + 0.09, 0.18], [-0.04, B + 0.09, 0.09], 0.0042, mats.blueTube, 0.05, 0.02));
   g.add(hose([0.3, B + 0.05, 0.2], [0.3, B + 0.05, 0.26], 0.0055, mats.blackCable, 0.02));
+  g.add(hose([0.3, B + 0.1, 0.22], [-0.255, B + 0.095, 0.56], 0.0035, mats.blackCable, 0.05, 0));
+  g.add(hose([-0.255, B + 0.085, 0.55], [-0.255, B + 0.085, -0.015], 0.003, mats.blackCable, 0.02));
 
   const light = stackLight(mats);
   light.group.position.set(0.32, B, -0.2);
@@ -183,48 +245,98 @@ function buildDistribution(mats, renderer, code) {
   g.add(nameplate(mats, renderer, code, "DISTRIBUIÇÃO"));
 
   let mag = pucks.slice();
-  let rail = [];
+  let queued = [];
+  let stepAnnounced = false;
+  let hmiRef = null;
+
+  const setHmi = (h) => {
+    hmiRef = h;
+  };
+
+  const landingY = (z) => BASE_Y - z * Math.sin(CHUTE_TILT);
+
+  function refreshSensors() {
+    const atExit = pucks.some((p) => p.position.x < -0.095 && Math.abs(p.position.z) < 0.05);
+    const atEnd = pucks.some(
+      (p) =>
+        p.position.x < -0.095 &&
+        Math.abs(p.position.z - (COUNT - 1) * PITCH) < 0.05
+    );
+    sensorOut.led.material = atExit ? sensorOut.onMat : mats.ledOff;
+    sensorOut.beam.visible = atExit;
+    sensorEnd.led.material = atEnd ? sensorEnd.onMat : mats.ledOff;
+    sensorEnd.beam.visible = atEnd;
+  }
 
   const ctl = {
     apply(action, p) {
       if (action !== "eject") return;
-      const push = easeInOut(clamp01(p / 0.28));
-      const drop = easeInOut(clamp01((p - 0.45) / 0.3));
-      const retract = easeInOut(clamp01((p - 0.58) / 0.38));
+      if (mag.length === 0) {
+        light.red.material = mats.ledRed;
+        light.amber.material = mats.ledOff;
+        light.green.material = mats.ledOff;
+        hmiRef?.draw("MAGAZINE VAZIO", "error");
+        return { stop: "MAGAZINE VAZIO", message: "Magazine vazio · programa interrompido" };
+      }
+      if (p < 0.08) stepAnnounced = false;
+      const push = easeInOut(clamp01(p / 0.3));
+      const drop = easeInOut(clamp01((p - 0.42) / 0.32));
+      const retract = easeInOut(clamp01((p - 0.62) / 0.34));
       ejector.setExtension(push * (1 - retract));
       mag.forEach((pk, i) => {
-        pk.position.x = mx - (i === 0 ? push * TRAVEL : 0);
-        pk.position.y = BASE_Y + i * PITCH - (i > 0 ? drop * PITCH : 0);
+        if (i === 0) {
+          pk.position.set(mx - push * TRAVEL, BASE_Y, 0);
+        } else {
+          pk.position.set(mx, BASE_Y + (i - drop) * STACK_PITCH, 0);
+        }
       });
-      rail.forEach((r) => {
-        r.mesh.position.x = r.baseX - push * TRAVEL;
+      queued.forEach((q) => {
+        const z = q.baseZ + push * PITCH;
+        q.mesh.position.set(CHUTE_X, landingY(z), z);
       });
-      sensor.children[1].material = p > 0.12 && p < 0.8 ? mats.ledRed : mats.ledOff;
+      refreshSensors();
+      if (!stepAnnounced && push > 0.55) {
+        stepAnnounced = true;
+        hmiRef?.draw(`SAÍDA ${Math.min(COUNT, queued.length + 1)}/${COUNT}`, "running");
+      }
     },
     commit(action) {
       if (action !== "eject" || mag.length === 0) return;
-      rail.forEach((r) => {
-        r.baseX -= TRAVEL;
-        r.mesh.position.x = r.baseX;
-        if (r.baseX <= OUT_LEFT) r.mesh.visible = false;
+      queued.forEach((q) => {
+        q.baseZ += PITCH;
+        q.mesh.position.set(CHUTE_X, landingY(q.baseZ), q.baseZ);
       });
       const out = mag.shift();
-      out.position.set(mx - TRAVEL, BASE_Y, 0);
-      rail.unshift({ mesh: out, baseX: mx - TRAVEL });
+      out.position.set(CHUTE_X, BASE_Y, 0);
+      queued.unshift({ mesh: out, baseZ: 0 });
+      refreshSensors();
+      const full = queued.length >= COUNT;
+      light.red.material = mats.ledOff;
+      light.amber.material = full ? mats.ledOff : mats.ledAmber;
+      light.green.material = full ? mats.ledGreen : mats.ledOff;
+      hmiRef?.draw(
+        full ? `CALHA CHEIA · ${COUNT}/${COUNT}` : `SAÍDA ${queued.length}/${COUNT}`,
+        full ? "done" : "running"
+      );
     },
     reset() {
       ejector.setExtension(0);
-      rail = [];
+      queued = [];
+      stepAnnounced = false;
       mag = pucks.slice();
       pucks.forEach((pk, i) => {
         pk.visible = true;
-        pk.position.set(mx, BASE_Y + i * PITCH, 0);
+        pk.position.set(mx, BASE_Y + i * STACK_PITCH, 0);
       });
-      sensor.children[1].material = mats.ledRed;
+      refreshSensors();
+      light.red.material = mats.ledRed;
+      light.amber.material = mats.ledOff;
+      light.green.material = mats.ledOff;
     },
+    setHmi,
   };
 
-  return { group: g, height: 0.44, ctl, light };
+  return { group: g, height: 0.44, ctl, light, persistResult: true };
 }
 
 function buildTest(mats, renderer, code) {
@@ -551,125 +663,424 @@ function buildConveyorStation(mats, renderer, code) {
       cyl(0.03, 0.03, width, mats.steel, 16, 0, 0.06, z, { rotZ: Math.PI / 2 })
     );
   }
-
-  const startZ = [-0.25, 0, 0.25];
-  const pucks = [];
-  for (let i = 0; i < 3; i++) {
-    const p = createPuck(mats, 0.032, 0.022);
-    p.position.set(0, 0.071, startZ[i]);
-    conveyor.add(p);
-    pucks.push(p);
-  }
-
   g.add(conveyor);
 
-  // diverter chute on the aisle side of the belt
-  g.add(box(0.2, 0.02, 0.12, mats.alu, 0.2, B + 0.05, 0));
+  const SENSOR_Z = 0.32;
+  const ENTRY_Z = 0.4;
+  const SENSOR_HALF = 0.05;
+  const FEED_GAP = 0.14;
+  const MAX_PIECES = 5;
+  const BIN_CAP = 3;
+  const LOT_SIZE = 3 * BIN_CAP; // one full set of ramps: 3 pieces per type
+  const BELT_MIN = -length / 2;
+  const BELT_LOOP = ENTRY_Z - BELT_MIN;
+  const PIECE_Y = 0.071;
+  const BIN_X = 0.32;
+  const BIN_Y = 0.05;
+
+  const TYPES = ["metal", "colored", "black"];
+  const TYPE_LABEL = { metal: "METÁLICA", colored: "PLÁSTICA COLORIDA", black: "PLÁSTICA PRETA" };
+  const RAMP_LABEL = { metal: "RAMPA 1", colored: "RAMPA 2", black: "RAMPA 3" };
+  const RAMP = {
+    metal: { z: 0.12, color: mats.bluePlastic, label: "METÁLICAS", sub: "RAMPA 1" },
+    colored: { z: -0.04, color: mats.orangePlastic, label: "COLORIDAS", sub: "RAMPA 2" },
+    black: { z: -0.2, color: mats.blackPlastic, label: "PRETAS", sub: "RAMPA 3" },
+  };
+  const RAMP_ANGLE = -0.18;
+
+  // three lateral ramps, each with a colour code and an end stop
+  for (const type of TYPES) {
+    const ramp = RAMP[type];
+    const z = ramp.z;
+    g.add(box(0.22, 0.006, 0.08, mats.alu, 0.245, B + 0.052, z, { rotZ: RAMP_ANGLE }));
+    for (const sz of [-1, 1]) {
+      g.add(
+        box(0.22, 0.018, 0.004, mats.alu, 0.245, B + 0.062, z + sz * 0.042, {
+          rotZ: RAMP_ANGLE,
+        })
+      );
+    }
+    g.add(
+      box(0.2, 0.004, 0.005, ramp.color, 0.245, B + 0.072, z - 0.043, { rotZ: RAMP_ANGLE })
+    );
+    g.add(box(0.04, 0.08, 0.09, mats.aluDark, 0.375, B + 0.04, z));
+  }
+
+  // diverter gantry shared by the three pushers
+  g.add(box(0.05, 0.018, 0.52, mats.alu, 0.3, B + 0.18, 0));
   for (const sz of [-1, 1]) {
-    g.add(box(0.2, 0.04, 0.008, mats.alu, 0.2, B + 0.08, sz * 0.06));
+    g.add(box(0.03, 0.18, 0.03, mats.aluDark, 0.375, B + 0.09, sz * 0.24));
+    g.add(box(0.08, 0.02, 0.03, mats.aluDark, 0.34, B + 0.171, sz * 0.24));
   }
 
-  // photo sensors on posts beside the belt
-  const sIn = sensorBeam(mats, -0.19, B + 0.12, -0.3);
-  const sOut = sensorBeam(mats, 0.19, B + 0.12, 0.3);
-  g.add(sIn, sOut);
-  for (const sx of [-1, 1]) {
-    g.add(box(0.014, 0.095, 0.014, mats.aluDark, sx * 0.19, B + 0.0475, sx * 0.3));
-    g.add(box(0.05, 0.012, 0.014, mats.aluDark, sx * 0.17, B + 0.09, sx * 0.3));
+  const pushers = {};
+  for (const type of TYPES) {
+    const z = RAMP[type].z;
+    const piston = pneumaticCylinder(mats, { len: 0.1, r: 0.018, stroke: 0.12 });
+    piston.rotation.z = Math.PI / 2;
+    piston.position.set(0.23, B + 0.16, z);
+    g.add(piston);
+    g.add(box(0.05, 0.02, 0.03, mats.aluDark, 0.265, B + 0.17, z));
+    const paddle = box(0.012, 0.11, 0.06, mats.yellow, 0.124, B + 0.115, z);
+    g.add(paddle);
+    pushers[type] = { piston, paddle };
   }
 
-  // cross pusher above the belt: piston on a top rail, paddle hanging into the lane
-  const pusher = pneumaticCylinder(mats, { len: 0.1, r: 0.018, stroke: 0.12 });
-  pusher.rotation.z = Math.PI / 2;
-  pusher.position.set(0.23, B + 0.16, 0);
-  g.add(pusher);
-  g.add(box(0.04, 0.16, 0.04, mats.aluDark, 0.29, B + 0.08, 0));
-  g.add(box(0.08, 0.02, 0.04, mats.aluDark, 0.25, B + 0.155, 0));
-  const paddle = box(0.012, 0.11, 0.06, mats.yellow, 0.124, B + 0.115, 0);
-  g.add(paddle);
+  // ramp nameplates above each pusher
+  for (const type of TYPES) {
+    const ramp = RAMP[type];
+    g.add(box(0.004, 0.05, 0.1, mats.aluDark, 0.302, B + 0.215, ramp.z));
+    const plate = new THREE.Mesh(
+      new THREE.PlaneGeometry(0.2, 0.075),
+      makePlateMaterial(renderer, ramp.label, ramp.sub)
+    );
+    plate.scale.setScalar(0.42);
+    plate.position.set(0.2995, B + 0.222, ramp.z);
+    plate.rotation.y = -Math.PI / 2;
+    g.add(plate);
+  }
+
+  // sensor gate at the infeed: inductive (metal) and reflective (colour) heads
+  const gate = { leds: {}, beam: null };
+  for (const [kind, sx] of [
+    ["metal", -1],
+    ["color", 1],
+  ]) {
+    const head = new THREE.Group();
+    head.add(box(0.03, 0.05, 0.03, mats.graphite, 0, 0, 0));
+    const faceMat = kind === "metal" ? mats.bluePlastic : mats.glassClear;
+    head.add(
+      cyl(0.009, 0.009, 0.004, faceMat, 12, -sx * 0.017, 0, 0, { rotZ: Math.PI / 2 })
+    );
+    const led = cyl(0.0045, 0.0045, 0.006, mats.ledOff, 8, 0, 0.028, 0);
+    head.add(led);
+    head.position.set(sx * 0.19, B + 0.115, SENSOR_Z);
+    g.add(head);
+    g.add(box(0.014, 0.11, 0.014, mats.aluDark, sx * 0.19, B + 0.055, SENSOR_Z));
+    g.add(box(0.05, 0.012, 0.05, mats.aluDark, sx * 0.19, B + 0.006, SENSOR_Z));
+    gate.leds[kind] = led;
+  }
+
+  const beamMat = new THREE.MeshBasicMaterial({
+    color: 0x49f08a,
+    transparent: true,
+    opacity: 0.55,
+    depthWrite: false,
+  });
+  const beam = box(0.34, 0.0025, 0.0025, beamMat, 0, B + 0.082, SENSOR_Z, {
+    cast: false,
+    receive: false,
+  });
+  beam.visible = false;
+  g.add(beam);
+  gate.beam = beam;
+
+  const sensorLabel = (text, sub, sx) => {
+    g.add(box(0.01, 0.03, 0.01, mats.aluDark, sx * 0.19, B + 0.16, SENSOR_Z));
+    const plate = new THREE.Mesh(
+      new THREE.PlaneGeometry(0.2, 0.075),
+      makePlateMaterial(renderer, text, sub)
+    );
+    plate.scale.setScalar(0.34);
+    plate.position.set(sx * 0.199, B + 0.185, SENSOR_Z);
+    plate.rotation.y = (sx * Math.PI) / 2;
+    g.add(plate);
+  };
+  sensorLabel("INDUTIVO", "METAL", -1);
+  sensorLabel("ÓPTICO", "COR", 1);
 
   const valve = valveBlock(mats);
-  valve.position.set(0.3, B, -0.22);
+  valve.position.set(0.31, B, 0.32);
   g.add(valve);
-  g.add(hose([0.3, B + 0.09, -0.2], [0.23, B + 0.18, 0.02], 0.0042, mats.blueTube, 0.06, 0.02));
-  g.add(hose([0.3, B + 0.05, -0.24], [0.3, B + 0.05, -0.3], 0.0055, mats.blackCable, 0.02));
+  g.add(hose([0.31, B + 0.09, 0.3], [0.3, B + 0.18, 0.24], 0.0042, mats.blueTube, 0.04, 0.01));
+  g.add(hose([0.31, B + 0.09, 0.34], [0.23, B + 0.16, 0.12], 0.0042, mats.blueTube, 0.06, 0.02));
+  g.add(hose([0.31, B + 0.05, 0.36], [0.36, B + 0.01, 0.24], 0.0055, mats.blackCable, 0.02));
 
   const light = stackLight(mats);
   light.group.position.set(-0.32, B, -0.2);
   g.add(light.group);
   g.add(nameplate(mats, renderer, code, "TRANSFERÊNCIA"));
 
-  const diverted = [false, false, false];
+  // pucks are pooled: continuous infeed reuses them instead of allocating geometry
+  const pool = [];
+  for (let i = 0; i < 16; i++) {
+    const mesh = createSortPuck(mats, 0.032, 0.022);
+    mesh.visible = false;
+    mesh.userData.inUse = false;
+    conveyor.add(mesh);
+    pool.push(mesh);
+  }
+
+  let pieces = [];
+  let bins = { metal: [], colored: [], black: [] };
+  let feedIndex = 0;
+  let fed = 0;
+  let sinceFeed = 0;
   let beltOffset = 0;
-  const wrapZ = (z) => ((((z + length / 2) % length) + length) % length) - length / 2;
-  const setBelt = (p) => {
-    const d = beltOffset + p * 0.5;
-    tex.offset.y = -(d / 0.14) % 1;
-    pucks.forEach((pk, i) => {
-      if (diverted[i]) return;
-      pk.position.z = wrapZ(startZ[i] - d);
-      pk.position.y = 0.071;
-    });
+  let sort = null;
+  let beltStep = null;
+  let scanKey = "";
+  let hmiRef = null;
+
+  const SORT_TYPE = { sortMetal: "metal", sortColor: "colored", sortBlack: "black" };
+  const isSort = (action) => Object.prototype.hasOwnProperty.call(SORT_TYPE, action);
+  // reach of the paddle around the ramp centre: piece radius + half paddle depth
+  const SORT_WINDOW = 0.06;
+
+  const setHmi = (h) => {
+    hmiRef = h;
   };
+
+  function spawn(type, z) {
+    const mesh = pool.find((m) => !m.userData.inUse);
+    if (!mesh) return null;
+    mesh.userData.inUse = true;
+    mesh.visible = true;
+    mesh.userData.setType(type);
+    mesh.position.set(0, PIECE_Y, z);
+    const piece = { mesh, type, z, classified: false };
+    pieces.push(piece);
+    return piece;
+  }
+
+  function feed() {
+    if (fed >= LOT_SIZE) return;
+    if (pieces.length >= MAX_PIECES) return;
+    if (pieces.some((p) => p.z > ENTRY_Z - 0.12)) return;
+    spawn(TYPES[feedIndex % TYPES.length], ENTRY_Z);
+    feedIndex += 1;
+    fed += 1;
+    sinceFeed = 0;
+  }
+
+  const lotDone = () => fed >= LOT_SIZE && pieces.length === 0;
+
+  function updateSensor() {
+    const active =
+      pieces.find((p) => Math.abs(p.z - SENSOR_Z) <= SENSOR_HALF) || null;
+    const metalOn = !!active && active.type === "metal";
+    const reflectOn = !!active && active.type !== "black";
+    gate.leds.metal.material = metalOn ? mats.ledBlue : mats.ledOff;
+    gate.leds.color.material = reflectOn ? mats.ledGreen : mats.ledOff;
+    gate.beam.visible = !!active;
+    gate.beam.material.color.set(reflectOn ? 0x49f08a : 0xff5a4a);
+    if (active) {
+      if (active.type !== scanKey) {
+        scanKey = active.type;
+        active.classified = true;
+        hmiRef?.draw(`${TYPE_LABEL[active.type]} · ${RAMP_LABEL[active.type]}`, "running");
+      }
+    } else if (scanKey) {
+      scanKey = "";
+    }
+  }
+
+  function moveBelt(delta) {
+    if (!delta) return;
+    beltOffset += delta;
+    sinceFeed = Math.max(0, sinceFeed + delta);
+    for (let i = pieces.length - 1; i >= 0; i--) {
+      const p = pieces[i];
+      p.z -= delta;
+      if (p.z > ENTRY_Z) p.z = ENTRY_Z;
+      if (p.z < BELT_MIN) {
+        // closed-loop belt: pieces that were not diverted keep running and return at the infeed
+        p.z += BELT_LOOP;
+      }
+      p.mesh.position.z = p.z;
+    }
+    if (sinceFeed >= FEED_GAP) feed();
+    updateSensor();
+    tex.offset.y = -(beltOffset / 0.14) % 1;
+  }
+
+  function divert(piece, type) {
+    const bin = bins[type];
+    bin.push(piece);
+    piece.mesh.position.set(BIN_X, BIN_Y + (bin.length - 1) * 0.022, RAMP[type].z);
+    if (bin.length > BIN_CAP) {
+      const old = bin.shift();
+      old.mesh.visible = false;
+      old.mesh.userData.inUse = false;
+    }
+    bin.forEach((p, i) => {
+      p.mesh.position.set(BIN_X, BIN_Y + i * 0.022, RAMP[type].z);
+    });
+    const idx = pieces.indexOf(piece);
+    if (idx >= 0) pieces.splice(idx, 1);
+  }
+
+  function findSortTarget(type) {
+    const zRamp = RAMP[type].z;
+    let target = null;
+    let best = SORT_WINDOW;
+    // a piece already within the paddle's reach is caught even if slightly past the ramp
+    for (const p of pieces) {
+      if (p.type !== type) continue;
+      const d = Math.abs(p.z - zRamp);
+      if (d <= best) {
+        best = d;
+        target = p;
+      }
+    }
+    if (target) return target;
+    best = Infinity;
+    for (const p of pieces) {
+      if (p.type !== type) continue;
+      const d = p.z - zRamp;
+      if (d > SORT_WINDOW && d < best) {
+        best = d;
+        target = p;
+      }
+    }
+    return target;
+  }
+
+  function beginSort(action) {
+    const type = SORT_TYPE[action];
+    const target = findSortTarget(type);
+    sort = {
+      action,
+      type,
+      target,
+      gap: target ? target.z - RAMP[type].z : 0,
+      lockP: 0,
+      moved: 0,
+      movedAtLock: 0,
+      lastP: 0,
+    };
+  }
+
+  function endSort() {
+    if (!sort) return;
+    const { target, type } = sort;
+    if (target && target.mesh.userData.inUse && Math.abs(target.z - RAMP[type].z) < 0.012) {
+      divert(target, type);
+    }
+    sort = null;
+  }
+
+  function applySort(action, p) {
+    if (!sort || sort.action !== action) beginSort(action);
+    const zRamp = RAMP[sort.type].z;
+    const ap = Math.min(p, 0.68);
+
+    if (!sort.target) {
+      // search at a steady pace; pieces fed during the block are acquired on the fly
+      const step = (0.45 * Math.max(0, ap - sort.lastP)) / 0.68;
+      if (step > 0) {
+        sort.moved += step;
+        moveBelt(step);
+      }
+      const found = findSortTarget(sort.type);
+      if (found) {
+        sort.target = found;
+        sort.gap = found.z - zRamp;
+        sort.lockP = ap;
+        sort.movedAtLock = sort.moved;
+      }
+    } else {
+      const span = Math.max(1e-3, 0.68 - sort.lockP);
+      const q = easeInOut(clamp01((ap - sort.lockP) / span));
+      const delta = sort.gap * q - (sort.moved - sort.movedAtLock);
+      if (Math.abs(delta) > 1e-6) {
+        sort.moved += delta;
+        moveBelt(delta);
+      }
+    }
+    sort.lastP = ap;
+
+    const pushP = clamp01((p - 0.68) / 0.32);
+    const k =
+      pushP < 0.28
+        ? easeInOut(pushP / 0.28)
+        : pushP < 0.72
+          ? 1
+          : 1 - easeInOut((pushP - 0.72) / 0.28);
+    const rig = pushers[sort.type];
+    rig.piston.setExtension(k);
+    rig.paddle.position.x = 0.124 - k * 0.12;
+
+    const target = sort.target;
+    if (target) {
+      const slide = clamp01((pushP - 0.36) / 0.36);
+      if (slide > 0) {
+        const e = easeInOut(slide);
+        target.mesh.position.x = 0.12 + e * (BIN_X - 0.12);
+        target.mesh.position.y = PIECE_Y - e * (PIECE_Y - BIN_Y);
+        target.mesh.position.z = RAMP[sort.type].z;
+        target.z = RAMP[sort.type].z;
+      } else {
+        target.mesh.position.x = k * 0.12;
+      }
+    }
+  }
+
+  function reset() {
+    for (const type of TYPES) {
+      pushers[type].piston.setExtension(0);
+      pushers[type].paddle.position.x = 0.124;
+      bins[type].forEach((p) => {
+        p.mesh.visible = false;
+        p.mesh.userData.inUse = false;
+      });
+    }
+    pieces.forEach((p) => {
+      p.mesh.visible = false;
+      p.mesh.userData.inUse = false;
+    });
+    pieces = [];
+    bins = { metal: [], colored: [], black: [] };
+    beltOffset = 0;
+    sinceFeed = 0;
+    feedIndex = 1;
+    fed = 1;
+    sort = null;
+    beltStep = null;
+    scanKey = "";
+    tex.offset.y = 0;
+    gate.leds.metal.material = mats.ledOff;
+    gate.leds.color.material = mats.ledOff;
+    gate.beam.visible = false;
+    spawn("metal", ENTRY_Z);
+    updateSensor();
+  }
 
   const ctl = {
     apply(action, p) {
+      if (action === "belt" || isSort(action)) {
+        if (lotDone()) {
+          return {
+            stop: "LOTE CONCLUÍDO",
+            message: "Lote concluído · todas as peças separadas",
+            kind: "done",
+          };
+        }
+      }
       if (action === "belt") {
-        setBelt(p);
-        sIn.children[1].material = p > 0.04 ? mats.ledRed : mats.ledOff;
-        sOut.children[1].material = p > 0.82 ? mats.ledRed : mats.ledOff;
-      } else if (action === "diverge") {
-        const k = p < 0.42 ? easeInOut(p / 0.42) : p < 0.66 ? 1 : 1 - easeInOut((p - 0.66) / 0.34);
-        pusher.setExtension(k);
-        paddle.position.x = 0.124 - k * 0.12;
-        let best = -1;
-        let bestD = Infinity;
-        pucks.forEach((pk, i) => {
-          if (diverted[i]) return;
-          const d = Math.abs(pk.position.z);
-          if (d < bestD) {
-            bestD = d;
-            best = i;
-          }
-        });
-        if (best >= 0) pucks[best].position.x = k * 0.12;
+        if (!beltStep) beltStep = { action: "belt", last: 0 };
+        const target = p * 0.5;
+        const delta = target - beltStep.last;
+        beltStep.last = target;
+        if (delta > 0) moveBelt(delta);
+      } else if (isSort(action)) {
+        applySort(action, p);
       }
     },
     commit(action) {
       if (action === "belt") {
-        beltOffset += 0.5;
-      } else if (action === "diverge") {
-        let best = -1;
-        let bestD = Infinity;
-        pucks.forEach((pk, i) => {
-          if (diverted[i]) return;
-          const d = Math.abs(pk.position.z);
-          if (d < bestD) {
-            bestD = d;
-            best = i;
-          }
-        });
-        if (best >= 0) {
-          diverted[best] = true;
-          pucks[best].position.x = 0.12;
-        }
+        beltStep = null;
+      } else if (isSort(action)) {
+        endSort();
       }
     },
-    reset() {
-      pusher.setExtension(0);
-      paddle.position.x = 0.124;
-      tex.offset.y = 0;
-      beltOffset = 0;
-      pucks.forEach((pk, i) => {
-        diverted[i] = false;
-        pk.position.set(0, 0.071, startZ[i]);
-      });
-      sIn.children[1].material = mats.ledRed;
-      sOut.children[1].material = mats.ledRed;
-    },
+    reset,
+    setHmi,
   };
 
-  return { group: g, height: 0.22, ctl, light };
+  reset();
+
+  return { group: g, height: 0.27, ctl, light, persistResult: true };
 }
 
 /* ------------------------------------------------------------------ */
@@ -823,9 +1234,16 @@ const INFO = {
   distribution: {
     name: "Estação de Distribuição",
     type: "Pneumática",
-    desc: "Retira a peça do magazine de coluna com cilindro de ejeção e a posiciona na saída da estação. Um sensor indutivo confirma a presença do item antes da liberação.",
-    tech: ["Cilindro duplo efeito", "Válvula 5/2", "Sensor indutivo", "Magazine tubular transparente"],
-    tip: "Cada ejeção libera uma peça do magazine e avança a fila na calha. O magazine guarda 8 peças; quando esvazia, o programa termina sem ejetar.",
+    desc: "Retira a peça do magazine de coluna com cilindro de ejeção e a deposita na rampa acumuladora. Um sensor indutivo confirma cada peça liberada e um sensor óptico no fim da rampa indica quando a calha está cheia.",
+    tech: [
+      "Cilindro duplo efeito",
+      "Válvula 5/2",
+      "Sensor indutivo",
+      "Sensor óptico reflexivo",
+      "Magazine tubular transparente",
+      "Rampa acumuladora",
+    ],
+    tip: "Cada comando de ejeção libera uma peça do magazine e empurra a fila na rampa, que acumula as 8 peças. O sensor indutivo acende a cada peça na saída e o óptico no fim da rampa indica calha cheia. Quando o magazine esvazia, o programa para e as peças permanecem na rampa.",
   },
   test: {
     name: "Estação de Teste",
@@ -858,9 +1276,9 @@ const INFO = {
   conveyor: {
     name: "Estação de Transferência",
     type: "Sensoriamento",
-    desc: "Esteira transportadora que liga as estações da linha. Sensores fotoelétricos detectam a peça na entrada e na saída e acionam o cilindro de desvio.",
-    tech: ["Esteira transportadora", "Sensor fotoelétrico", "Cilindro de desvio", "CLP"],
-    tip: "As peças entram espaçadas na esteira. O desviador atua sobre a peça mais próxima dele e a empurra para a calha lateral.",
+    desc: "Esteira com triagem por material. Um sensor indutivo identifica peças metálicas e um sensor óptico reflexivo distingue o plástico colorido do preto (sem reflexão). Três desviadores laterais encaminham cada peça para a rampa correspondente.",
+    tech: ["Esteira transportadora", "Sensor indutivo", "Sensor óptico reflexivo", "3 cilindros de desvio", "3 rampas de triagem"],
+    tip: "A leitura é: indutivo ligado = metálica; indutivo desligado e óptico ligado = plástico colorido; os dois desligados = plástico preto. Cada bloco de separação alinha a peça com o cilindro e a desvia. O lote tem 9 peças (3 de cada tipo) e é finito: as peças que não são desviadas voltam para o início da esteira e continuam rodando. Quando todas forem separadas, o programa para com LOTE CONCLUÍDO.",
   },
 };
 
@@ -905,6 +1323,7 @@ export function buildLines(mats, renderer) {
     const state = { programMode: false };
     entry.hmi = hmi;
     entry.state = state;
+    built.ctl?.setHmi?.(hmi);
 
     const setSignal = (name) => {
       const lt = built.light;
@@ -914,12 +1333,13 @@ export function buildLines(mats, renderer) {
       lt.green.material = name === "all" || name === "green" ? mats.ledGreen : mats.ledOff;
     };
 
-    entry.setProgramMode = (on) => {
+    entry.setProgramMode = (on, keepState = false) => {
       state.programMode = on;
       if (on) {
+        if (built.persistResult) built.ctl?.reset?.();
         hmi?.draw("MODO PROGRAMA", "ready");
       } else {
-        built.ctl?.reset?.();
+        if (!keepState || !built.persistResult) built.ctl?.reset?.();
         setSignal("all");
         hmi?.draw("TOQUE PARA PROGRAMAR", "idle");
       }
@@ -933,7 +1353,7 @@ export function buildLines(mats, renderer) {
         built.light.green.material =
           Math.floor(p * 5) % 2 === 0 ? mats.ledGreen : mats.ledOff;
       } else {
-        built.ctl?.apply?.(action, p);
+        return built.ctl?.apply?.(action, p);
       }
     };
 

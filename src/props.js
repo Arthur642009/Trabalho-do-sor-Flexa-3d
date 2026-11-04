@@ -265,12 +265,19 @@ export function buildProps(mats) {
     const mon = monitor(mats);
     mon.position.set(6.32, 0.76, z);
     mon.rotation.y = -Math.PI / 2;
+    // camera poses for the first-person sit-down animation
+    mon.userData.seat = {
+      stand: new THREE.Vector3(5.08, 1.58, z),
+      eye: new THREE.Vector3(5.58, 1.16, z),
+      look: new THREE.Vector3(6.32, 1.19, z),
+    };
     group.add(mon);
     monitors.push(mon);
 
     const kb = keyboard(mats);
     kb.position.set(6.12, 0.768, z);
-    kb.rotation.y = Math.PI / 2;
+    // spacebar must face the operator (chair side), not the monitor
+    kb.rotation.y = -Math.PI / 2;
     group.add(kb);
 
     const ms = mouseProp(mats);
@@ -287,11 +294,10 @@ export function buildProps(mats) {
     }
   });
 
-  const chairZs = [-1.6, 1.4];
-  chairZs.forEach((z, i) => {
+  deskZ.forEach((z, i) => {
     const chair = officeChair(mats);
     chair.position.set(5.45, 0, z);
-    chair.rotation.y = Math.PI / 2 + (i ? -0.14 : 0.1);
+    chair.rotation.y = Math.PI / 2 + (i % 2 ? -0.13 : 0.09);
     group.add(chair);
   });
 
@@ -304,6 +310,11 @@ export function buildProps(mats) {
     const mon = monitor(mats);
     mon.position.set(-6.62, 0.76, z);
     mon.rotation.y = Math.PI / 2;
+    mon.userData.seat = {
+      stand: new THREE.Vector3(-5.55, 1.58, z),
+      eye: new THREE.Vector3(-6.08, 1.16, z),
+      look: new THREE.Vector3(-6.62, 1.19, z),
+    };
     group.add(mon);
     monitors.push(mon);
 
