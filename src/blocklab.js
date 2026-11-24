@@ -26,10 +26,10 @@ const BLOCKS = {
   },
   assemble: {
     label: "Montar conjunto",
-    hint: "prensa + alimentador",
-    dur: 3.2,
+    hint: "alimentar + posicionar + prensar",
+    dur: 4.2,
     tone: "blue",
-    tip: "O alimentador desce o inserto, a prensa fixa a tampa e o cilindro lateral empurra o conjunto montado para a saída.",
+    tip: "O alimentador captura uma tampa, o shuttle a posiciona sobre a base, a prensa assenta o conjunto e o cilindro lateral o leva à saída. O magazine possui cinco tampas e interrompe o programa ao esvaziar.",
   },
   store: {
     label: "Guardar bandeja",

@@ -1,4 +1,5 @@
 import * as THREE from "three";
+import { RoundedBoxGeometry } from "three/addons/geometries/RoundedBoxGeometry.js";
 import {
   box,
   cyl,
@@ -339,58 +340,275 @@ function buildDistribution(mats, renderer, code) {
   return { group: g, height: 0.44, ctl, light, persistResult: true };
 }
 
+let testBushingGeometry = null;
+let pressureGaugeFaceTexture = null;
+
+function createTestBushing(mats) {
+  if (!testBushingGeometry) {
+    const profile = [
+      [0.015, 0],
+      [0.044, 0],
+      [0.052, 0],
+      [0.052, 0.006],
+      [0.049, 0.01],
+      [0.04, 0.013],
+      [0.04, 0.034],
+      [0.037, 0.039],
+      [0.015, 0.039],
+      [0.015, 0],
+    ].map(([x, y]) => new THREE.Vector2(x, y));
+    testBushingGeometry = new THREE.LatheGeometry(profile, 40);
+    testBushingGeometry.computeVertexNormals();
+  }
+
+  const part = new THREE.Group();
+  part.name = "test-bushing";
+  const body = new THREE.Mesh(testBushingGeometry, mats.traySteel);
+  body.castShadow = true;
+  body.receiveShadow = true;
+  part.add(body);
+
+  const sleeve = cyl(0.0142, 0.0146, 0.026, mats.chrome, 32, 0, 0.019, 0);
+  sleeve.castShadow = true;
+  sleeve.receiveShadow = true;
+  part.add(sleeve);
+
+  const boreRim = new THREE.Mesh(
+    new THREE.TorusGeometry(0.0152, 0.0008, 6, 32),
+    mats.aluDark
+  );
+  boreRim.rotation.x = Math.PI / 2;
+  boreRim.position.y = 0.0391;
+  part.add(boreRim);
+
+  const witnessRing = new THREE.Mesh(
+    new THREE.TorusGeometry(0.0255, 0.0012, 6, 36),
+    mats.bluePlastic
+  );
+  witnessRing.rotation.x = Math.PI / 2;
+  witnessRing.position.y = 0.0394;
+  part.add(witnessRing);
+
+  const machinedRing = new THREE.Mesh(
+    new THREE.TorusGeometry(0.034, 0.0007, 5, 36),
+    mats.chrome
+  );
+  machinedRing.rotation.x = Math.PI / 2;
+  machinedRing.position.y = 0.0392;
+  part.add(machinedRing);
+
+  for (let i = 0; i < 3; i++) {
+    const a = (i / 3) * Math.PI * 2 + Math.PI / 6;
+    const x = Math.cos(a) * 0.0455;
+    const z = Math.sin(a) * 0.0455;
+    part.add(cyl(0.0033, 0.0033, 0.0012, mats.graphite, 12, x, 0.0106, z));
+    const rim = new THREE.Mesh(
+      new THREE.TorusGeometry(0.0036, 0.00045, 5, 16),
+      mats.chrome
+    );
+    rim.rotation.x = Math.PI / 2;
+    rim.position.set(x, 0.0112, z);
+    part.add(rim);
+  }
+
+  return part;
+}
+
+function createPressureGaugeTexture(aniso) {
+  if (pressureGaugeFaceTexture) return pressureGaugeFaceTexture;
+
+  const canvas = document.createElement("canvas");
+  canvas.width = 256;
+  canvas.height = 256;
+  const ctx = canvas.getContext("2d");
+  ctx.fillStyle = "#f4f4ef";
+  ctx.fillRect(0, 0, 256, 256);
+  ctx.beginPath();
+  ctx.arc(128, 128, 116, 0, Math.PI * 2);
+  ctx.fillStyle = "#fbfbf7";
+  ctx.fill();
+  ctx.lineWidth = 5;
+  ctx.strokeStyle = "#5b6268";
+  ctx.stroke();
+
+  for (let i = 0; i <= 40; i++) {
+    const a = Math.PI * 0.75 + (i / 40) * Math.PI * 1.5;
+    const major = i % 5 === 0;
+    const inner = major ? 86 : 96;
+    ctx.beginPath();
+    ctx.moveTo(128 + Math.cos(a) * inner, 128 + Math.sin(a) * inner);
+    ctx.lineTo(128 + Math.cos(a) * 106, 128 + Math.sin(a) * 106);
+    ctx.lineWidth = major ? 3 : 1.5;
+    ctx.strokeStyle = i >= 36 ? "#c81020" : "#343a40";
+    ctx.stroke();
+  }
+
+  ctx.fillStyle = "#343a40";
+  ctx.font = "bold 17px Arial";
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  for (let i = 0; i <= 4; i++) {
+    const a = Math.PI * 0.75 + (i / 4) * Math.PI * 1.5;
+    ctx.fillText(String(i * 2), 128 + Math.cos(a) * 70, 128 + Math.sin(a) * 70);
+  }
+  ctx.font = "bold 15px Arial";
+  ctx.fillText("bar", 128, 171);
+  ctx.font = "12px Arial";
+  ctx.fillText("PRENSA", 128, 193);
+
+  pressureGaugeFaceTexture = new THREE.CanvasTexture(canvas);
+  pressureGaugeFaceTexture.colorSpace = THREE.SRGBColorSpace;
+  pressureGaugeFaceTexture.anisotropy = aniso;
+  return pressureGaugeFaceTexture;
+}
+
 function buildTest(mats, renderer, code) {
   const g = new THREE.Group();
   g.add(tslotBase(mats));
   const B = 0.036;
-
-  // press frame
   const px = 0.02;
-  for (const sz of [-1, 1]) {
-    g.add(box(0.035, 0.46, 0.035, mats.alu, px, B + 0.23, sz * 0.15));
-  }
-  g.add(box(0.04, 0.04, 0.36, mats.alu, px, B + 0.47, 0));
-  g.add(box(0.13, 0.012, 0.1, mats.graphite, px, B + 0.5, 0));
+  const rb = (w, h, d, r, mat, x = 0, y = 0, z = 0) => {
+    const mesh = new THREE.Mesh(new RoundedBoxGeometry(w, h, d, 3, r), mat);
+    mesh.position.set(x, y, z);
+    mesh.castShadow = true;
+    mesh.receiveShadow = true;
+    return mesh;
+  };
 
-  const press = pneumaticCylinder(mats, { len: 0.27, r: 0.03, stroke: 0.1 });
+  for (const sz of [-1, 1]) {
+    g.add(rb(0.045, 0.46, 0.045, 0.006, mats.alu, px, B + 0.23, sz * 0.17));
+    g.add(box(0.008, 0.4, 0.012, mats.graphite, px - 0.023, B + 0.235, sz * 0.17));
+    g.add(rb(0.11, 0.018, 0.11, 0.004, mats.aluDark, px, B + 0.018, sz * 0.17));
+    g.add(
+      box(0.012, 0.12, 0.034, mats.aluDark, px - 0.038, B + 0.073, sz * 0.17, {
+        rotZ: -0.55,
+      })
+    );
+    for (const dx of [-0.035, 0.035]) {
+      g.add(cyl(0.005, 0.005, 0.006, mats.chrome, 6, px + dx, B + 0.03, sz * 0.17));
+    }
+  }
+
+  g.add(rb(0.16, 0.052, 0.41, 0.008, mats.alu, px, B + 0.485, 0));
+  g.add(rb(0.13, 0.016, 0.15, 0.003, mats.graphite, px, B + 0.454, 0));
+  g.add(rb(0.09, 0.006, 0.035, 0.002, mats.hazard, px - 0.025, B + 0.514, 0.185));
+
+  const press = pneumaticCylinder(mats, { len: 0.25, r: 0.032, stroke: 0.05 });
   press.rotation.x = Math.PI;
   press.position.set(px, B + 0.45, 0);
   g.add(press);
-  g.add(cyl(0.045, 0.045, 0.012, mats.aluDark, 20, px, B + 0.443, 0));
+  g.add(cyl(0.044, 0.044, 0.018, mats.aluDark, 24, px, B + 0.443, 0));
+  g.add(cyl(0.033, 0.033, 0.028, mats.bluePlastic, 24, px, B + 0.368, 0));
 
-  // test nest + part
-  g.add(box(0.14, 0.03, 0.14, mats.aluDark, px, B + 0.015, 0));
-  const part = createPuck(mats, 0.045, 0.03);
-  part.position.set(px, B + 0.045, 0);
+  for (const sx of [-1, 1]) {
+    for (const sz of [-1, 1]) {
+      g.add(cyl(0.0035, 0.0035, 0.215, mats.chrome, 10, px + sx * 0.043, B + 0.307, sz * 0.043));
+    }
+    g.add(cyl(0.007, 0.007, 0.31, mats.chrome, 18, px + sx * 0.072, B + 0.275, 0));
+    g.add(cyl(0.014, 0.014, 0.024, mats.aluDark, 18, px + sx * 0.072, B + 0.43, 0));
+    g.add(cyl(0.013, 0.013, 0.018, mats.aluDark, 18, px + sx * 0.072, B + 0.12, 0));
+  }
+
+  const head = new THREE.Group();
+  head.name = "test-press-head";
+  head.position.set(px, B + 0.19, 0);
+  head.add(rb(0.19, 0.028, 0.15, 0.005, mats.aluDark, 0, 0, 0));
+  head.add(rb(0.13, 0.009, 0.105, 0.002, mats.steel, 0, 0.018, 0));
+  for (const sx of [-1, 1]) {
+    head.add(cyl(0.015, 0.015, 0.05, mats.aluDark, 18, sx * 0.072, 0.012, 0));
+    head.add(cyl(0.009, 0.009, 0.054, mats.chrome, 16, sx * 0.072, 0.012, 0));
+  }
+  head.add(cyl(0.027, 0.03, 0.022, mats.chrome, 28, 0, -0.027, 0));
+  head.add(cyl(0.019, 0.019, 0.004, mats.rubber, 24, 0, -0.039, 0));
+  for (const sx of [-1, 1]) {
+    for (const sz of [-1, 1]) {
+      head.add(cyl(0.004, 0.004, 0.005, mats.chrome, 6, sx * 0.05, 0.025, sz * 0.04));
+    }
+  }
+  g.add(head);
+
+  g.add(rb(0.24, 0.018, 0.26, 0.004, mats.aluDark, px, B + 0.027, 0));
+  g.add(rb(0.16, 0.014, 0.16, 0.003, mats.steel, px, B + 0.043, 0));
+  g.add(cyl(0.06, 0.064, 0.012, mats.graphite, 32, px, B + 0.054, 0));
+  g.add(cyl(0.0145, 0.0145, 0.003, mats.graphite, 24, px, B + 0.061, 0));
+  for (let i = 0; i < 3; i++) {
+    const a = (i / 3) * Math.PI * 2;
+    g.add(
+      cyl(0.0035, 0.0035, 0.016, mats.chrome, 14, px + Math.cos(a) * 0.058, B + 0.068, Math.sin(a) * 0.058)
+    );
+  }
+  for (const sx of [-1, 1]) {
+    for (const sz of [-1, 1]) {
+      g.add(cyl(0.004, 0.004, 0.005, mats.chrome, 6, px + sx * 0.068, B + 0.053, sz * 0.068));
+    }
+  }
+
+  const part = createTestBushing(mats);
+  part.position.set(px, B + 0.06, 0);
   g.add(part);
 
-  // pressure gauge
   const gauge = new THREE.Group();
-  gauge.add(cyl(0.046, 0.046, 0.022, mats.offWhite, 20, 0, 0, 0, { rotZ: Math.PI / 2 }));
-  gauge.add(cyl(0.008, 0.008, 0.03, mats.aluDark, 8, 0.02, 0, 0, { rotZ: Math.PI / 2 }));
-  const face = new THREE.Mesh(new THREE.CircleGeometry(0.038, 20), mats.whitePaint);
-  face.rotation.y = -Math.PI / 2;
-  face.position.x = -0.012;
-  const needle = box(0.003, 0.028, 0.005, mats.redPaint, -0.016, 0.007, 0);
-  needle.rotation.x = 0.5;
-  gauge.add(face, needle);
-  gauge.position.set(px - 0.06, B + 0.37, 0.155);
-  gauge.rotation.y = Math.PI / 2;
+  gauge.position.set(px - 0.13, B + 0.355, 0.13);
+  gauge.add(cyl(0.045, 0.045, 0.024, mats.offWhite, 28, 0, 0, 0, { rotZ: Math.PI / 2 }));
+  const bezel = new THREE.Mesh(new THREE.TorusGeometry(0.039, 0.004, 8, 32), mats.chrome);
+  bezel.rotation.y = -Math.PI / 2;
+  bezel.position.x = -0.013;
+  gauge.add(bezel);
+  const gaugeFace = new THREE.Mesh(
+    new THREE.CircleGeometry(0.0365, 40),
+    new THREE.MeshStandardMaterial({
+      map: createPressureGaugeTexture(mats.aniso),
+      roughness: 0.52,
+      metalness: 0.04,
+    })
+  );
+  gaugeFace.rotation.y = -Math.PI / 2;
+  gaugeFace.position.x = -0.0145;
+  gauge.add(gaugeFace);
+  const needle = box(0.0018, 0.028, 0.0028, mats.redPaint, -0.016, 0.01, 0);
+  needle.name = "test-gauge-needle";
+  needle.rotation.x = -2.05;
+  gauge.add(needle);
+  gauge.add(cyl(0.0055, 0.0055, 0.004, mats.graphite, 16, -0.018, 0, 0, { rotZ: Math.PI / 2 }));
+  const gaugeGlass = new THREE.Mesh(new THREE.CircleGeometry(0.037, 36), mats.glassClear);
+  gaugeGlass.rotation.y = -Math.PI / 2;
+  gaugeGlass.position.x = -0.019;
+  gauge.add(gaugeGlass);
   g.add(gauge);
-  g.add(box(0.018, 0.09, 0.018, mats.aluDark, px - 0.06, B + 0.405, 0.19));
-  g.add(box(0.018, 0.018, 0.04, mats.aluDark, px - 0.06, B + 0.39, 0.172));
+  g.add(cyl(0.006, 0.006, 0.13, mats.aluDark, 12, px - 0.065, B + 0.355, 0.13, { rotZ: Math.PI / 2 }));
+
+  const partSensor = sensorBeam(mats, px + 0.112, B + 0.074, 0.035);
+  partSensor.children[1].material = mats.ledGreen;
+  g.add(partSensor);
+  g.add(box(0.014, 0.04, 0.014, mats.aluDark, px + 0.112, B + 0.055, 0.035));
+
+  const limitSwitch = new THREE.Group();
+  limitSwitch.position.set(px + 0.094, B + 0.137, -0.025);
+  limitSwitch.add(box(0.024, 0.034, 0.02, mats.graphite, 0, 0, 0));
+  limitSwitch.add(cyl(0.006, 0.006, 0.01, mats.steel, 12, -0.016, 0.013, 0, { rotZ: Math.PI / 2 }));
+  const limitLed = cyl(0.004, 0.004, 0.005, mats.ledOff, 10, 0, 0.021, 0);
+  limitSwitch.add(limitLed);
+  g.add(limitSwitch);
+
+  const frl = new THREE.Group();
+  frl.position.set(0.285, B, -0.12);
+  frl.add(cyl(0.026, 0.026, 0.07, mats.offWhite, 20, 0, 0.047, 0));
+  frl.add(cyl(0.023, 0.023, 0.035, mats.glassClear, 20, 0, 0.013, 0));
+  frl.add(cyl(0.03, 0.03, 0.012, mats.bluePlastic, 20, 0, 0.085, 0));
+  frl.add(cyl(0.022, 0.022, 0.028, mats.graphite, 18, 0, 0.104, 0));
+  frl.add(cyl(0.027, 0.027, 0.018, mats.blackPlastic, 18, 0, 0.126, 0));
+  g.add(frl);
 
   const valve = valveBlock(mats);
   valve.position.set(0.3, B, 0.16);
   g.add(valve);
-  g.add(hose([0.3, B + 0.09, 0.16], [0.06, B + 0.39, 0.006], 0.0042, mats.blueTube, 0.06));
-  g.add(hose([0.3, B + 0.09, 0.2], [0.06, B + 0.24, -0.006], 0.0042, mats.blueTube, 0.075, -0.02));
+  g.add(rb(0.032, 0.024, 0.36, 0.003, mats.graphite, 0.265, B + 0.047, -0.01));
+  g.add(hose([0.285, B + 0.126, -0.12], [0.3, B + 0.08, 0.14], 0.0042, mats.blueTube, 0.045, 0.015));
+  g.add(hose([0.3, B + 0.09, 0.16], [px + 0.032, B + 0.39, 0.006], 0.0042, mats.blueTube, 0.06));
+  g.add(hose([0.3, B + 0.09, 0.2], [px + 0.032, B + 0.25, -0.006], 0.0042, mats.blueTube, 0.075, -0.02));
   g.add(hose([0.04, B + 0.1, 0.22], [0.24, B + 0.08, 0.24], 0.0042, mats.blueTube, 0.035));
   g.add(hose([0.3, B + 0.05, 0.18], [0.3, B + 0.05, 0.25], 0.0055, mats.blackCable, 0.015));
-
-  const sensor = sensorBeam(mats, px + 0.09, B + 0.07, 0.08);
-  g.add(sensor);
-  g.add(box(0.014, 0.045, 0.014, mats.aluDark, px + 0.09, B + 0.0225, 0.08));
+  g.add(hose([px + 0.112, B + 0.09, 0.035], [0.265, B + 0.06, 0.06], 0.0028, mats.blackCable, 0.025, 0.01));
 
   const light = stackLight(mats);
   light.group.position.set(0.32, B, -0.2);
@@ -402,16 +620,19 @@ function buildTest(mats, renderer, code) {
       if (action !== "press") return;
       const k = p < 0.4 ? easeInOut(p / 0.4) : p < 0.64 ? 1 : 1 - easeInOut((p - 0.64) / 0.36);
       press.setExtension(k);
-      sensor.children[1].material =
-        p > 0.3 && p < 0.75 ? mats.ledRed : mats.ledOff;
+      head.position.y = B + 0.19 - k * 0.05;
+      needle.rotation.x = -2.05 + k * 4.1;
+      limitLed.material = p > 0.3 && p < 0.75 ? mats.ledRed : mats.ledOff;
     },
     reset() {
       press.setExtension(0);
-      sensor.children[1].material = mats.ledRed;
+      head.position.y = B + 0.19;
+      needle.rotation.x = -2.05;
+      limitLed.material = mats.ledOff;
     },
   };
 
-  return { group: g, height: 0.52, ctl, light };
+  return { group: g, height: 0.55, ctl, light };
 }
 
 function buildProcessing(mats, renderer, code) {
@@ -479,87 +700,388 @@ function buildProcessing(mats, renderer, code) {
   return { group: g, height: 0.3, ctl, light };
 }
 
+function createAssemblyBase(mats) {
+  const g = new THREE.Group();
+  g.name = "assembly-base";
+  g.add(cyl(0.041, 0.043, 0.025, mats.offWhite, 28, 0, 0.0125, 0));
+  g.add(cyl(0.043, 0.043, 0.005, mats.steel, 28, 0, 0.0025, 0));
+  g.add(cyl(0.034, 0.034, 0.004, mats.steel, 28, 0, 0.027, 0));
+  g.add(cyl(0.024, 0.026, 0.01, mats.aluDark, 24, 0, 0.034, 0));
+  const ring = new THREE.Mesh(new THREE.TorusGeometry(0.023, 0.0014, 6, 28), mats.chrome);
+  ring.rotation.x = Math.PI / 2;
+  ring.position.y = 0.039;
+  g.add(ring);
+  for (let i = 0; i < 3; i++) {
+    const a = (i / 3) * Math.PI * 2;
+    g.add(cyl(0.003, 0.003, 0.0012, mats.graphite, 12, Math.cos(a) * 0.029, 0.0294, Math.sin(a) * 0.029));
+  }
+  g.add(box(0.007, 0.005, 0.01, mats.pinkPlastic, 0.034, 0.029, 0));
+  return g;
+}
+
+function createAssemblyCap(mats) {
+  const g = new THREE.Group();
+  g.name = "assembly-cap";
+  g.add(cyl(0.031, 0.031, 0.016, mats.pinkPlastic, 26, 0, 0.008, 0));
+  g.add(cyl(0.032, 0.032, 0.004, mats.steel, 26, 0, 0.002, 0));
+  g.add(cyl(0.013, 0.014, 0.006, mats.chrome, 20, 0, 0.019, 0));
+  g.add(box(0.008, 0.006, 0.012, mats.pinkPlastic, 0.028, 0.009, 0));
+  const rim = new THREE.Mesh(new THREE.TorusGeometry(0.026, 0.001, 5, 26), mats.orangePlastic);
+  rim.rotation.x = Math.PI / 2;
+  rim.position.y = 0.0164;
+  g.add(rim);
+  return g;
+}
+
 function buildAssembly(mats, renderer, code) {
   const g = new THREE.Group();
   g.add(tslotBase(mats));
   const B = 0.036;
+  const px = 0.02;
+  const pressZ = -0.035;
+  const feedZ = 0.045;
+  const rb = (w, h, d, r, mat, x = 0, y = 0, z = 0) => {
+    const mesh = new THREE.Mesh(new RoundedBoxGeometry(w, h, d, 3, r), mat);
+    mesh.position.set(x, y, z);
+    mesh.castShadow = true;
+    mesh.receiveShadow = true;
+    return mesh;
+  };
 
-  // gantry
   for (const sz of [-1, 1]) {
-    g.add(box(0.035, 0.5, 0.035, mats.alu, 0.02, B + 0.25, sz * 0.22));
+    g.add(rb(0.045, 0.5, 0.045, 0.006, mats.alu, px, B + 0.25, sz * 0.21));
+    g.add(box(0.008, 0.43, 0.012, mats.graphite, px - 0.023, B + 0.255, sz * 0.21));
+    g.add(rb(0.12, 0.018, 0.12, 0.004, mats.aluDark, px, B + 0.018, sz * 0.21));
+    g.add(box(0.012, 0.14, 0.036, mats.aluDark, px - 0.04, B + 0.08, sz * 0.21, { rotZ: -0.5 }));
+    for (const dx of [-0.04, 0.04]) {
+      g.add(cyl(0.005, 0.005, 0.006, mats.chrome, 6, px + dx, B + 0.03, sz * 0.21));
+    }
   }
-  g.add(box(0.045, 0.045, 0.48, mats.alu, 0.02, B + 0.51, 0));
+  g.add(rb(0.17, 0.052, 0.47, 0.008, mats.alu, px, B + 0.505, 0));
+  g.add(rb(0.15, 0.014, 0.25, 0.003, mats.graphite, px, B + 0.472, 0));
+  g.add(rb(0.1, 0.006, 0.035, 0.002, mats.hazard, px - 0.02, B + 0.534, 0.215));
 
-  // press over the base part, feeder over the insert
-  const press = pneumaticCylinder(mats, { len: 0.31, r: 0.028, stroke: 0.12 });
+  const press = pneumaticCylinder(mats, { len: 0.3, r: 0.028, stroke: 0.05 });
   press.rotation.x = Math.PI;
-  press.position.set(0.02, B + 0.4855, -0.03);
+  press.position.set(px, B + 0.47, pressZ);
   g.add(press);
-  g.add(cyl(0.04, 0.04, 0.012, mats.aluDark, 20, 0.02, B + 0.485, -0.03));
+  g.add(cyl(0.04, 0.04, 0.016, mats.aluDark, 22, px, B + 0.463, pressZ));
+  g.add(cyl(0.029, 0.029, 0.026, mats.bluePlastic, 22, px, B + 0.39, pressZ));
 
-  const feeder = pneumaticCylinder(mats, { len: 0.31, r: 0.022, stroke: 0.104 });
+  const feeder = pneumaticCylinder(mats, { len: 0.27, r: 0.022, stroke: 0.07 });
   feeder.rotation.x = Math.PI;
-  feeder.position.set(0.02, B + 0.4855, 0.04);
+  feeder.position.set(px, B + 0.47, feedZ);
   g.add(feeder);
-  g.add(cyl(0.03, 0.03, 0.012, mats.aluDark, 20, 0.02, B + 0.485, 0.04));
+  g.add(cyl(0.031, 0.031, 0.014, mats.aluDark, 20, px, B + 0.463, feedZ));
+  g.add(cyl(0.023, 0.023, 0.022, mats.bluePlastic, 20, px, B + 0.4, feedZ));
 
-  // base nest with two parts
-  g.add(box(0.18, 0.02, 0.16, mats.aluDark, 0.02, B + 0.01, 0));
-  const p1 = createPuck(mats, 0.04, 0.022);
-  p1.position.set(0.02, B + 0.03, -0.03);
-  p1.add(cyl(0.03, 0.03, 0.008, mats.steel, 16, 0, 0.022, 0));
-  g.add(p1);
-  const p2 = createPuck(mats, 0.026, 0.04);
-  p2.position.set(0.02, B + 0.045, 0.04);
-  g.add(p2);
-
-  // cap magazine
-  g.add(box(0.08, 0.09, 0.07, mats.alu, -0.2, B + 0.045, -0.14));
-  for (let i = 0; i < 4; i++) {
-    g.add(cyl(0.026, 0.026, 0.008, mats.steel, 14, -0.2, B + 0.094 + i * 0.008, -0.14));
+  for (const z of [pressZ, feedZ]) {
+    for (const sx of [-1, 1]) {
+      g.add(cyl(0.006, 0.006, 0.29, mats.chrome, 16, px + sx * 0.043, B + 0.285, z));
+      g.add(cyl(0.012, 0.012, 0.022, mats.aluDark, 16, px + sx * 0.043, B + 0.43, z));
+      g.add(cyl(0.011, 0.011, 0.016, mats.aluDark, 16, px + sx * 0.043, B + 0.14, z));
+    }
   }
 
-  // side pusher, pad level with the assembled part, on a pedestal
+  const pressHead = new THREE.Group();
+  pressHead.name = "assembly-press-head";
+  pressHead.position.set(px, B + 0.167, pressZ);
+  pressHead.add(rb(0.14, 0.026, 0.12, 0.004, mats.aluDark, 0, 0, 0));
+  pressHead.add(rb(0.09, 0.008, 0.08, 0.002, mats.steel, 0, 0.017, 0));
+  for (const sx of [-1, 1]) {
+    pressHead.add(cyl(0.013, 0.013, 0.046, mats.aluDark, 16, sx * 0.043, 0.008, 0));
+  }
+  pressHead.add(cyl(0.022, 0.025, 0.02, mats.chrome, 24, 0, -0.009, 0));
+  pressHead.add(cyl(0.015, 0.015, 0.003, mats.rubber, 20, 0, -0.02, 0));
+  g.add(pressHead);
+
+  const feederHead = new THREE.Group();
+  feederHead.name = "assembly-feeder-head";
+  feederHead.position.set(px, B + 0.2, feedZ);
+  feederHead.add(rb(0.12, 0.024, 0.1, 0.004, mats.aluDark, 0, 0, 0));
+  for (const sx of [-1, 1]) {
+    feederHead.add(cyl(0.011, 0.011, 0.042, mats.aluDark, 16, sx * 0.043, 0.006, 0));
+  }
+  feederHead.add(cyl(0.018, 0.02, 0.02, mats.chrome, 22, 0, -0.016, 0));
+  feederHead.add(cyl(0.013, 0.013, 0.003, mats.rubber, 18, 0, -0.027, 0));
+  g.add(feederHead);
+
+  g.add(rb(0.23, 0.02, 0.25, 0.004, mats.aluDark, px, B + 0.022, 0));
+  g.add(rb(0.15, 0.012, 0.13, 0.003, mats.steel, px, B + 0.038, pressZ));
+  g.add(cyl(0.048, 0.052, 0.008, mats.graphite, 28, px, B + 0.047, pressZ));
+  for (let i = 0; i < 3; i++) {
+    const a = (i / 3) * Math.PI * 2;
+    g.add(cyl(0.0035, 0.0035, 0.014, mats.chrome, 14, px + Math.cos(a) * 0.055, B + 0.055, pressZ + Math.sin(a) * 0.055));
+  }
+
+  const basePart = createAssemblyBase(mats);
+  basePart.position.set(px, B + 0.04, pressZ);
+  g.add(basePart);
+
+  const shuttle = new THREE.Group();
+  shuttle.name = "assembly-shuttle";
+  shuttle.position.set(px, B + 0.072, feedZ);
+  shuttle.add(rb(0.09, 0.01, 0.12, 0.002, mats.aluDark, 0, 0, 0));
+  shuttle.add(box(0.012, 0.012, 0.1, mats.chrome, -0.034, 0.008, 0));
+  shuttle.add(box(0.012, 0.012, 0.1, mats.chrome, 0.034, 0.008, 0));
+  g.add(shuttle);
+
+  const shuttleCylinder = pneumaticCylinder(mats, { len: 0.1, r: 0.016, stroke: 0.07 });
+  shuttleCylinder.rotation.x = -Math.PI / 2;
+  shuttleCylinder.position.set(px, B + 0.064, 0.145);
+  g.add(shuttleCylinder);
+  g.add(rb(0.06, 0.024, 0.05, 0.003, mats.aluDark, px, B + 0.047, 0.13));
+
+  const capPart = createAssemblyCap(mats);
+  capPart.position.set(px, B + 0.14, feedZ);
+  g.add(capPart);
+
+  const magazineCaps = [capPart];
+  for (let i = 1; i < 5; i++) {
+    const cap = createAssemblyCap(mats);
+    cap.position.set(px, B + 0.14 + i * 0.022, feedZ);
+    magazineCaps.push(cap);
+    g.add(cap);
+  }
+  g.add(box(0.09, 0.008, 0.085, mats.aluDark, px, B + 0.13, feedZ));
+  g.add(box(0.004, 0.13, 0.085, mats.glassClear, px - 0.047, B + 0.2, feedZ));
+  g.add(box(0.004, 0.13, 0.085, mats.glassClear, px + 0.047, B + 0.2, feedZ));
+  g.add(box(0.09, 0.13, 0.004, mats.glassClear, px, B + 0.2, feedZ - 0.041));
+  for (const sx of [-1, 1]) {
+    g.add(cyl(0.003, 0.003, 0.14, mats.chrome, 12, px + sx * 0.047, B + 0.2, feedZ + 0.042));
+  }
+  g.add(rb(0.105, 0.01, 0.1, 0.003, mats.aluDark, px, B + 0.272, feedZ));
+  g.add(box(0.05, 0.008, 0.004, mats.hazard, px, B + 0.279, feedZ + 0.052));
+
   const pusher = pneumaticCylinder(mats, { len: 0.11, r: 0.02, stroke: 0.09 });
   pusher.rotation.z = Math.PI / 2;
-  pusher.position.set(0.172, B + 0.04, -0.03);
+  pusher.position.set(0.185, B + 0.065, pressZ);
   g.add(pusher);
-  g.add(box(0.05, 0.02, 0.06, mats.aluDark, 0.15, B + 0.01, -0.03));
-  g.add(cyl(0.024, 0.024, 0.02, mats.aluDark, 16, 0.14, B + 0.04, -0.03, { rotZ: Math.PI / 2 }));
-  g.add(box(0.08, 0.019, 0.09, mats.alu, -0.12, B + 0.0095, -0.03));
+  g.add(rb(0.07, 0.03, 0.075, 0.004, mats.aluDark, 0.175, B + 0.035, pressZ));
+  g.add(cyl(0.025, 0.025, 0.024, mats.aluDark, 16, 0.148, B + 0.065, pressZ, { rotZ: Math.PI / 2 }));
+  const paddle = rb(0.012, 0.045, 0.065, 0.003, mats.offWhite, px + 0.072, B + 0.075, pressZ);
+  paddle.add(box(0.006, 0.035, 0.052, mats.rubber, -0.008, 0, 0));
+  g.add(paddle);
+
+  g.add(rb(0.23, 0.012, 0.14, 0.003, mats.aluDark, -0.145, B + 0.014, pressZ));
+  g.add(rb(0.21, 0.006, 0.12, 0.002, mats.rubber, -0.145, B + 0.023, pressZ));
+  for (const sx of [-1, 1]) {
+    g.add(box(0.21, 0.024, 0.006, mats.alu, -0.145, B + 0.033, pressZ + sx * 0.06));
+  }
+
+  const gauge = new THREE.Group();
+  gauge.position.set(px - 0.135, B + 0.33, 0.12);
+  gauge.add(cyl(0.043, 0.043, 0.024, mats.offWhite, 28, 0, 0, 0, { rotZ: Math.PI / 2 }));
+  const bezel = new THREE.Mesh(new THREE.TorusGeometry(0.037, 0.004, 8, 32), mats.chrome);
+  bezel.rotation.y = -Math.PI / 2;
+  bezel.position.x = -0.013;
+  gauge.add(bezel);
+  const gaugeFace = new THREE.Mesh(
+    new THREE.CircleGeometry(0.0345, 40),
+    new THREE.MeshStandardMaterial({
+      map: createPressureGaugeTexture(mats.aniso),
+      roughness: 0.52,
+      metalness: 0.04,
+    })
+  );
+  gaugeFace.rotation.y = -Math.PI / 2;
+  gaugeFace.position.x = -0.0145;
+  gauge.add(gaugeFace);
+  const needle = box(0.0018, 0.026, 0.0026, mats.redPaint, -0.016, 0.009, 0);
+  needle.name = "assembly-gauge-needle";
+  needle.rotation.x = -2.05;
+  gauge.add(needle);
+  gauge.add(cyl(0.005, 0.005, 0.004, mats.graphite, 16, -0.018, 0, 0, { rotZ: Math.PI / 2 }));
+  const gaugeGlass = new THREE.Mesh(new THREE.CircleGeometry(0.035, 36), mats.glassClear);
+  gaugeGlass.rotation.y = -Math.PI / 2;
+  gaugeGlass.position.x = -0.019;
+  gauge.add(gaugeGlass);
+  g.add(gauge);
+  g.add(cyl(0.006, 0.006, 0.12, mats.aluDark, 12, px - 0.065, B + 0.33, 0.12, { rotZ: Math.PI / 2 }));
+
+  const baseSensor = sensorBeam(mats, px + 0.103, B + 0.077, pressZ);
+  baseSensor.children[1].material = mats.ledGreen;
+  const capSensor = sensorBeam(mats, px - 0.096, B + 0.105, feedZ);
+  capSensor.children[1].material = mats.ledBlue;
+  const shuttleSensor = sensorBeam(mats, px + 0.098, B + 0.091, pressZ + 0.04);
+  shuttleSensor.children[1].material = mats.ledBlue;
+  g.add(baseSensor, capSensor, shuttleSensor);
+  g.add(box(0.018, 0.062, 0.018, mats.aluDark, px + 0.103, B + 0.057, pressZ));
+  g.add(box(0.018, 0.064, 0.018, mats.aluDark, px - 0.096, B + 0.083, feedZ));
+  g.add(box(0.018, 0.06, 0.018, mats.aluDark, px + 0.098, B + 0.069, pressZ + 0.04));
+
+  const limitSwitch = new THREE.Group();
+  limitSwitch.position.set(px + 0.092, B + 0.146, pressZ);
+  limitSwitch.add(rb(0.028, 0.034, 0.022, 0.003, mats.graphite, 0, 0, 0));
+  limitSwitch.add(cyl(0.006, 0.006, 0.012, mats.steel, 12, -0.018, 0.012, 0, { rotZ: Math.PI / 2 }));
+  const limitLed = cyl(0.004, 0.004, 0.005, mats.ledOff, 10, 0, 0.022, 0);
+  limitSwitch.add(limitLed);
+  g.add(limitSwitch);
+
+  const frl = new THREE.Group();
+  frl.position.set(0.29, B, -0.2);
+  frl.add(rb(0.09, 0.026, 0.065, 0.003, mats.aluDark, 0, 0.035, 0));
+  frl.add(cyl(0.021, 0.021, 0.07, mats.offWhite, 18, -0.026, 0.078, 0));
+  frl.add(cyl(0.019, 0.019, 0.055, mats.offWhite, 18, 0.01, 0.078, 0));
+  frl.add(cyl(0.016, 0.016, 0.04, mats.glassClear, 20, 0.01, 0.082, 0));
+  frl.add(cyl(0.022, 0.022, 0.008, mats.graphite, 18, -0.026, 0.112, 0));
+  frl.add(cyl(0.022, 0.022, 0.008, mats.graphite, 18, 0.01, 0.108, 0));
+  g.add(frl);
 
   const valve = valveBlock(mats);
-  valve.position.set(0.3, B, -0.2);
+  valve.position.set(0.285, B, 0.12);
   g.add(valve);
-  g.add(hose([0.3, B + 0.09, -0.18], [0.05, B + 0.417, -0.03], 0.0042, mats.blueTube, 0.06));
-  g.add(hose([0.3, B + 0.09, -0.22], [0.05, B + 0.244, -0.03], 0.0042, mats.blueTube, 0.08, -0.03));
-  g.add(hose([0.3, B + 0.1, -0.2], [0.041, B + 0.417, 0.04], 0.0042, mats.blueTube, 0.07, 0.02));
-  g.add(hose([0.3, B + 0.11, -0.17], [0.12, B + 0.059, -0.03], 0.0042, mats.blueTube, 0.06, 0.02));
-  g.add(hose([0.3, B + 0.05, -0.24], [0.3, B + 0.05, -0.3], 0.0055, mats.blackCable, 0.02));
+  const valve2 = valveBlock(mats);
+  valve2.position.set(0.285, B, 0.22);
+  g.add(valve2);
+  g.add(rb(0.17, 0.035, 0.19, 0.004, mats.aluDark, 0.285, B + 0.007, 0.17));
+  g.add(hose([0.26, B + 0.08, -0.2], [0.26, B + 0.08, 0.08], 0.0055, mats.blueTube, 0.04));
+  g.add(hose([0.285, B + 0.1, 0.1], [px + 0.02, B + 0.42, pressZ], 0.0042, mats.blueTube, 0.07));
+  g.add(hose([0.3, B + 0.11, 0.1], [px + 0.045, B + 0.29, pressZ], 0.0042, mats.blueTube, 0.07));
+  g.add(hose([0.255, B + 0.1, 0.14], [px + 0.03, B + 0.42, feedZ], 0.0042, mats.blueTube, 0.06));
+  g.add(hose([0.285, B + 0.11, 0.2], [px + 0.035, B + 0.09, 0.14], 0.0042, mats.blueTube, 0.06));
+  g.add(hose([0.3, B + 0.11, 0.24], [0.18, B + 0.09, pressZ], 0.0042, mats.blueTube, 0.06));
+  g.add(hose([0.3, B + 0.04, 0.12], [0.3, B + 0.04, -0.3], 0.0055, mats.blackCable, 0.03));
+  g.add(box(0.045, 0.025, 0.23, mats.graphite, 0.34, B + 0.035, 0.02));
+  g.add(hose([0.34, B + 0.05, -0.1], [0.34, B + 0.05, 0.27], 0.004, mats.blackCable, 0.02));
 
   const light = stackLight(mats);
-  light.group.position.set(0.32, B, 0.2);
+  light.group.position.set(0.33, B, -0.12);
   g.add(light.group);
   g.add(nameplate(mats, renderer, code, "MONTAGEM"));
 
   const seg = (p, a, b) => easeInOut(clamp01((p - a) / (b - a)));
+  const stages = ["ALIMENTANDO", "POSICIONANDO", "PRENSANDO", "VERIFICANDO", "EXPULSANDO"];
+  const completed = [];
+  let cycles = 0;
+  let activeCap = null;
+  let stage = -1;
+  let hmiRef = null;
+
+  const setHmi = (h) => {
+    hmiRef = h;
+  };
+
+  function prepareCycle() {
+    if (cycles >= magazineCaps.length) return false;
+    activeCap = magazineCaps[cycles];
+    activeCap.visible = true;
+    activeCap.position.set(px, B + 0.14, feedZ);
+    stage = -1;
+    return true;
+  }
+
+  function refreshSensors(pressing = false, transferring = false) {
+    baseSensor.children[1].material = mats.ledGreen;
+    capSensor.children[1].material = activeCap && pForSensorActive ? mats.ledBlue : mats.ledOff;
+    shuttleSensor.children[1].material = transferring ? mats.ledBlue : mats.ledOff;
+    limitLed.material = pressing ? mats.ledRed : mats.ledOff;
+  }
+
+  let pForSensorActive = false;
+
   const ctl = {
     apply(action, p) {
       if (action !== "assemble") return;
-      press.setExtension(seg(p, 0, 0.24) * (1 - seg(p, 0.46, 0.62)));
-      feeder.setExtension(seg(p, 0.18, 0.4) * (1 - seg(p, 0.5, 0.64)));
-      pusher.setExtension(seg(p, 0.64, 0.8) * (1 - seg(p, 0.84, 0.97)));
-      p1.position.x = 0.02 - seg(p, 0.68, 0.92) * 0.1;
+      if (cycles >= magazineCaps.length) {
+        light.red.material = mats.ledRed;
+        light.amber.material = mats.ledOff;
+        light.green.material = mats.ledOff;
+        hmiRef?.draw("MAGAZINE VAZIO", "error");
+        return { stop: "MAGAZINE VAZIO", message: "Magazine de tampas vazio · programa interrompido" };
+      }
+      if (!activeCap) prepareCycle();
+      if (!activeCap) return;
+
+      const feed = seg(p, 0, 0.22) * (1 - seg(p, 0.28, 0.42));
+      const shuttleMove = seg(p, 0.2, 0.4) * (1 - seg(p, 0.9, 1));
+      const pressMove = seg(p, 0.36, 0.56) * (1 - seg(p, 0.64, 0.76));
+      const eject = seg(p, 0.76, 0.9) * (1 - seg(p, 0.94, 1));
+      const capDrop = seg(p, 0, 0.22) * 0.057 + pressMove * 0.006;
+      const capSlide = seg(p, 0.2, 0.4);
+
+      feeder.setExtension(feed);
+      shuttleCylinder.setExtension(shuttleMove);
+      press.setExtension(pressMove);
+      pusher.setExtension(eject);
+      feederHead.position.y = B + 0.2 - feed * 0.07;
+      pressHead.position.y = B + 0.167 - pressMove * 0.05;
+      shuttle.position.z = feedZ - shuttleMove * (feedZ - pressZ);
+      activeCap.position.set(px, B + 0.14 - capDrop, feedZ - capSlide * (feedZ - pressZ));
+      basePart.position.x = px - eject * 0.14;
+      paddle.position.x = px + 0.072 - eject * 0.13;
+      needle.rotation.x = -2.05 + pressMove * 4.1;
+      pForSensorActive = p > 0.08 && p < 0.42;
+      refreshSensors(pressMove > 0.35, shuttleMove > 0.1 && shuttleMove < 0.95);
+
+      let nextStage = p < 0.2 ? 0 : p < 0.36 ? 1 : p < 0.64 ? 2 : p < 0.76 ? 3 : 4;
+      if (nextStage !== stage) {
+        stage = nextStage;
+        hmiRef?.draw(stages[stage], stage === 4 ? "done" : "running");
+      }
+      light.red.material = mats.ledOff;
+      light.amber.material = stage < 3 ? mats.ledAmber : mats.ledOff;
+      light.green.material = stage >= 3 ? mats.ledGreen : mats.ledOff;
+    },
+    commit(action) {
+      if (action !== "assemble" || !activeCap || cycles >= magazineCaps.length) return;
+      const finished = new THREE.Group();
+      finished.name = `assembly-finished-${cycles + 1}`;
+      const finishedBase = createAssemblyBase(mats);
+      const finishedCap = createAssemblyCap(mats);
+      finished.add(finishedBase, finishedCap);
+      finishedCap.position.y = 0.04;
+      finished.position.set(px - 0.13 - completed.length * 0.078, B + 0.025, pressZ);
+      g.add(finished);
+      completed.push(finished);
+      activeCap.visible = false;
+      activeCap = null;
+      cycles += 1;
+      for (let i = cycles; i < magazineCaps.length; i++) {
+        magazineCaps[i].position.set(px, B + 0.14 + (i - cycles) * 0.022, feedZ);
+      }
+      basePart.position.set(px, B + 0.04, pressZ);
+      paddle.position.x = px + 0.072;
+      light.green.material = cycles < magazineCaps.length ? mats.ledGreen : mats.ledOff;
+      light.amber.material = cycles < magazineCaps.length ? mats.ledAmber : mats.ledOff;
+      light.red.material = cycles >= magazineCaps.length ? mats.ledRed : mats.ledOff;
+      hmiRef?.draw(
+        cycles >= magazineCaps.length ? "MAGAZINE VAZIO" : `MONTAGEM ${cycles}/${magazineCaps.length}`,
+        cycles >= magazineCaps.length ? "error" : "done"
+      );
     },
     reset() {
+      for (const part of completed) g.remove(part);
+      completed.length = 0;
+      cycles = 0;
+      activeCap = null;
+      stage = -1;
+      pForSensorActive = false;
+      magazineCaps.forEach((cap, i) => {
+        cap.visible = true;
+        cap.position.set(px, B + 0.14 + i * 0.022, feedZ);
+      });
       press.setExtension(0);
       feeder.setExtension(0);
+      shuttleCylinder.setExtension(0);
       pusher.setExtension(0);
-      p1.position.x = 0.02;
+      pressHead.position.y = B + 0.167;
+      feederHead.position.y = B + 0.2;
+      shuttle.position.z = feedZ;
+      basePart.position.set(px, B + 0.04, pressZ);
+      paddle.position.x = px + 0.072;
+      needle.rotation.x = -2.05;
+      refreshSensors();
+      light.red.material = mats.ledOff;
+      light.amber.material = mats.ledAmber;
+      light.green.material = mats.ledOff;
     },
+    setHmi,
   };
 
-  return { group: g, height: 0.54, ctl, light };
+  reset();
+
+  return { group: g, height: 0.56, ctl, light, persistResult: true };
 }
 
 function buildStorage(mats, renderer, code) {
@@ -1262,9 +1784,9 @@ const INFO = {
   assembly: {
     name: "Estação de Montagem",
     type: "Eletropneumática",
-    desc: "Dois cilindros verticais executam a montagem: um posiciona o inserto e o outro prensa o conjunto, enquanto um terceiro cilindro lateral faz o travamento.",
-    tech: ["Cilindros verticais", "Cilindro lateral", "Magazine de insertos"],
-    tip: "Três atuadores trabalham em sequência: o alimentador desce o inserto, a prensa fecha a tampa e o cilindro lateral expulsa a peça montada.",
+    desc: "Célula de montagem com alimentador, shuttle de posicionamento, prensa e expulsor lateral. Sensores confirmam cada etapa e um magazine transparente fornece cinco tampas por ciclo.",
+    tech: ["Magazine de 5 tampas", "Shuttle linear", "Prensa pneumática", "Sensores de posição", "Expulsor lateral"],
+    tip: "O alimentador captura a tampa, o shuttle a leva até a base, a prensa assenta o conjunto e o expulsor o envia para a bandeja. Ao usar as cinco tampas, o programa é interrompido até a reposição.",
   },
   storage: {
     name: "Estação de Armazenagem",
@@ -1368,8 +1890,8 @@ export function buildLines(mats, renderer) {
   /* ---------------- right line ---------------- */
   const rightZ = [-2.7, -1.62, -0.54, 0.54, 1.62, 2.7];
   const rightCodes = ["MPS-01", "MPS-02", "MPS-03", "MPS-04", "MPS-05", "MPS-06"];
-  const rightTypes = ["DISTRIBUIÇÃO", "TESTE", "PROCESSAMENTO", "MONTAGEM", "ARMAZENAGEM", "TRANSFERÊNCIA"];
-  const rightKinds = ["distribution", "test", "processing", "assembly", "storage", "conveyor"];
+  const rightTypes = ["DISTRIBUIÇÃO", "TESTE", "PROCESSAMENTO", "MONTAGEM", "TESTE", "TRANSFERÊNCIA"];
+  const rightKinds = ["distribution", "test", "processing", "assembly", "test", "conveyor"];
 
   const rightBench = new THREE.Group();
   rightBench.position.set(2.0, 0, 0);
@@ -1386,7 +1908,7 @@ export function buildLines(mats, renderer) {
     buildTest,
     buildProcessing,
     buildAssembly,
-    buildStorage,
+    buildTest,
     buildConveyorStation,
   ];
 
@@ -1412,9 +1934,9 @@ export function buildLines(mats, renderer) {
   const leftZ = [-3.0, -1.9, 1.9, 3.0];
   const leftWorldZ = [3.0, 1.9, -1.9, -3.0];
   const leftCodes = ["MPS-07", "MPS-08", "MPS-09", "MPS-10"];
-  const leftTypes = ["DISTRIBUIÇÃO", "TESTE", "MONTAGEM", "ARMAZENAGEM"];
-  const leftKinds = ["distribution", "test", "assembly", "storage"];
-  const leftBuilders = [buildDistribution, buildTest, buildAssembly, buildStorage];
+  const leftTypes = ["DISTRIBUIÇÃO", "TESTE", "MONTAGEM", "TRANSFERÊNCIA"];
+  const leftKinds = ["distribution", "test", "assembly", "conveyor"];
+  const leftBuilders = [buildDistribution, buildTest, buildAssembly, buildConveyorStation];
 
   const leftBench = new THREE.Group();
   leftBench.position.set(-2.0, 0, 0);
