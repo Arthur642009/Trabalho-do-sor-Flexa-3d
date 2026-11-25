@@ -294,6 +294,9 @@ export function createVR({ renderer, scene, camera, room }) {
     exit,
     update,
     isSupported,
+    getPlayerPosition(target = new THREE.Vector3()) {
+      return target.copy(rig.position);
+    },
     onChange(fn) {
       onChange = fn;
     },

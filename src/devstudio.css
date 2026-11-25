@@ -46,7 +46,8 @@
 
 .studio-window {
   position: absolute;
-  inset: 18px;
+  inset: calc(18px + var(--safe-top)) calc(18px + var(--safe-right))
+    calc(18px + var(--safe-bottom)) calc(18px + var(--safe-left));
   display: flex;
   flex-direction: column;
   min-height: 0;
@@ -990,7 +991,8 @@
 
 @media (max-width: 760px) {
   .studio-window {
-    inset: 8px;
+    inset: calc(8px + var(--safe-top)) calc(8px + var(--safe-right))
+      calc(8px + var(--safe-bottom)) calc(8px + var(--safe-left));
   }
 
   .st-sidebar {
@@ -1007,5 +1009,73 @@
 
   .st-term-note {
     display: none;
+  }
+
+  .st-btn,
+  .st-close,
+  .st-term-tabs button {
+    min-height: 40px;
+  }
+}
+
+@media (max-height: 540px) and (orientation: landscape) {
+  .st-titlebar {
+    height: 34px;
+  }
+
+  .st-tabs,
+  .st-breadcrumb {
+    display: none;
+  }
+
+  .st-terminal {
+    height: 126px;
+  }
+
+  .st-guide-inner {
+    padding: 14px 16px 20px;
+  }
+
+  .st-guide-title {
+    font-size: 16px;
+  }
+
+  .st-guide h3 {
+    margin-top: 12px;
+  }
+
+  .st-actions {
+    padding-block: 5px;
+  }
+
+  .st-code,
+  .st-highlight {
+    padding-top: 8px;
+    font-size: 12px;
+  }
+}
+
+@media (max-height: 420px) and (orientation: landscape) {
+  .studio-window {
+    inset: calc(4px + var(--safe-top)) calc(4px + var(--safe-right))
+      calc(4px + var(--safe-bottom)) calc(4px + var(--safe-left));
+    border-radius: 10px;
+  }
+
+  .st-activitybar,
+  .st-guide {
+    display: none;
+  }
+
+  .st-terminal {
+    height: 104px;
+  }
+
+  .st-term-head {
+    height: 28px;
+  }
+
+  .st-state {
+    font-size: 10px;
   }
 }

@@ -684,17 +684,18 @@
 
 @media (max-width: 820px) {
   .bl-window {
-    top: 82px;
-    left: 12px;
-    right: 12px;
+    top: calc(78px + var(--safe-top));
+    left: calc(10px + var(--safe-left));
+    right: calc(10px + var(--safe-right));
+    bottom: calc(10px + var(--safe-bottom));
     width: auto;
-    height: calc(100% - 158px);
+    height: auto;
     border-radius: 14px;
   }
 
   .bl-body {
-    grid-template-columns: 1fr;
-    grid-template-rows: auto 1fr;
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: auto auto minmax(0, 1fr);
     overflow-y: auto;
   }
 
@@ -710,7 +711,33 @@
   }
 
   .bl-pal {
-    min-width: 130px;
+    min-width: 132px;
+    min-height: 48px;
+  }
+
+  .bl-canvas {
+    min-height: 300px;
+    padding: 10px;
+  }
+
+  .bl-list-wrap {
+    min-height: 170px;
+  }
+
+  .bl-step {
+    min-height: 50px;
+  }
+
+  .bl-mini,
+  .bl-step-del {
+    width: 40px;
+    height: 40px;
+  }
+
+  .bl-run,
+  .bl-stop,
+  .bl-clear {
+    min-height: 44px;
   }
 
   .bl-info {
@@ -720,5 +747,99 @@
 
   .bl-tip {
     margin-top: 10px;
+  }
+}
+
+@media (max-height: 540px) and (orientation: landscape) {
+  .bl-window {
+    top: calc(8px + var(--safe-top));
+    bottom: calc(8px + var(--safe-bottom));
+  }
+
+  .bl-head {
+    padding-block: 8px;
+  }
+
+  .bl-head p {
+    display: none;
+  }
+
+  .bl-status {
+    margin-bottom: 7px;
+    padding-block: 5px;
+  }
+
+  .bl-body {
+    grid-template-columns: 154px minmax(0, 1fr) 180px;
+    grid-template-rows: minmax(0, 1fr);
+    overflow: hidden;
+  }
+
+  .bl-palette {
+    border-right: 1px solid var(--stroke);
+    border-bottom: 0;
+    padding: 8px;
+  }
+
+  .bl-blocks {
+    flex-direction: column;
+    overflow-x: hidden;
+    overflow-y: auto;
+  }
+
+  .bl-pal {
+    min-width: 0;
+    min-height: 44px;
+  }
+
+  .bl-info {
+    border-top: 0;
+    border-left: 1px solid var(--stroke);
+    padding: 9px;
+  }
+
+  .bl-info-tech,
+  .bl-tip,
+  .bl-note,
+  .bl-info-seq {
+    display: none;
+  }
+
+  .bl-canvas {
+    min-height: 0;
+    padding: 8px;
+  }
+
+  .bl-list-wrap {
+    min-height: 90px;
+  }
+
+  .bl-actions {
+    gap: 5px;
+  }
+
+  .bl-parts {
+    display: none;
+  }
+}
+
+@media (max-height: 420px) and (orientation: landscape) {
+  .bl-window {
+    top: calc(8px + var(--safe-top));
+    left: calc(8px + var(--safe-left));
+    right: calc(8px + var(--safe-right));
+    bottom: calc(8px + var(--safe-bottom));
+  }
+
+  .bl-body {
+    grid-template-columns: 142px minmax(0, 1fr);
+  }
+
+  .bl-info {
+    display: none;
+  }
+
+  .bl-status {
+    display: none;
   }
 }

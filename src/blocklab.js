@@ -15,7 +15,7 @@ const BLOCKS = {
     hint: "prensa pneumática",
     dur: 2.6,
     tone: "blue",
-    tip: "A prensa desce sob pressão controlada até encostar na peça. O manômetro mostra a força aplicada — pressão alta demais pode marcar a peça.",
+    tip: "A prensa desce sob pressão controlada até encostar na peça. Os sensores confirmam o fim de curso — pressão alta demais pode marcar a peça.",
   },
   rotate: {
     label: "Girar mesa 90°",
@@ -26,10 +26,10 @@ const BLOCKS = {
   },
   assemble: {
     label: "Montar conjunto",
-    hint: "alimentar + posicionar + prensar",
-    dur: 4.2,
+    hint: "carregar + posicionar + prensar",
+    dur: 5.2,
     tone: "blue",
-    tip: "O alimentador captura uma tampa, o shuttle a posiciona sobre a base, a prensa assenta o conjunto e o cilindro lateral o leva à saída. O magazine possui cinco tampas e interrompe o programa ao esvaziar.",
+    tip: "O alimentador de dois eixos transfere uma base do magazine para o ninho. O escapador coloca a tampa no shuttle, a prensa assenta o conjunto e o cilindro lateral o leva à saída. Os magazines possuem cinco bases e cinco tampas e interrompem o programa ao esvaziar.",
   },
   store: {
     label: "Guardar bandeja",
@@ -43,7 +43,7 @@ const BLOCKS = {
     hint: "esteira + sensores",
     dur: 3.4,
     tone: "blue",
-    tip: "A esteira conduz as peças no sentido da saída. Os sensores fotoelétricos detectam a passagem na entrada e na saída.",
+    tip: "A esteira transporta as peças retiradas do magazine lateral. O magazine contém três metálicas, três plásticas coloridas e três pretas; o estoque visível diminui a cada alimentação.",
   },
   sortMetal: {
     label: "Separar metálica",

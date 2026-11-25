@@ -1,6 +1,7 @@
 import * as THREE from "three";
 import { RoundedBoxGeometry } from "three/addons/geometries/RoundedBoxGeometry.js";
 import { box, cyl, addShadows, mergeToMesh, boxGeometryAt } from "./utils.js";
+import { isWalkable, moveWithCollision, PLAYER_RADIUS } from "./navigation.js";
 
 /* ------------------------------------------------------------------ */
 /* office furniture                                                    */
@@ -26,6 +27,7 @@ function desk(mats, length = 4, depth = 0.75, height = 0.74) {
 }
 
 const screenHitMaterial = new THREE.MeshBasicMaterial({ visible: false });
+const chairHitMaterial = new THREE.MeshBasicMaterial({ visible: false });
 
 function monitor(mats, w = 0.55, h = 0.33) {
   const g = new THREE.Group();
@@ -150,6 +152,8 @@ function spoke(a, b, w, h, mat) {
 
 function officeChair(mats) {
   const g = new THREE.Group();
+  g.name = "office-chair";
+  const casters = [];
 
   /* 5-star base: hub, sloping spokes and casters that touch the floor */
   const hubY = 0.092;
@@ -166,12 +170,14 @@ function officeChair(mats) {
     const caster = new THREE.Group();
     caster.position.set(tip[0], 0.033, tip[2]);
     caster.rotation.y = -(a + Math.PI / 2);
+    caster.userData.restRotation = caster.rotation.y;
     for (const s of [-1, 1]) {
       const wheel = cyl(0.033, 0.033, 0.014, mats.rubber, 16, s * 0.015, 0, 0, {
         rotZ: Math.PI / 2,
       });
       caster.add(wheel);
     }
+    casters.push(caster);
     g.add(caster);
   }
 
@@ -203,7 +209,244 @@ function officeChair(mats) {
     g.add(pad);
   }
 
+  const hit = new THREE.Mesh(new THREE.BoxGeometry(0.76, 1.12, 0.76), chairHitMaterial);
+  hit.position.y = 0.56;
+  hit.visible = false;
+  hit.userData.chair = g;
+  g.add(hit);
+  g.userData.hit = hit;
+  g.userData.casters = casters;
   return g;
+}
+
+const CHAIR_RADIUS = 0.34;
+const CHAIR_LINEAR_DAMPING = 3.1;
+const CHAIR_ANGULAR_DAMPING = 4.2;
+const CHAIR_MAX_SPEED = 3.2;
+const CHAIR_MAX_ANGULAR_SPEED = 3.8;
+
+const shortestAngle = (from, to) => Math.atan2(Math.sin(to - from), Math.cos(to - from));
+
+export class ChairPhysics {
+  constructor(chairs) {
+    this.chairs = chairs;
+    this.stateByChair = new Map();
+    this.lastPlayer = null;
+    this.states = chairs.map((chair) => {
+      const state = {
+        chair,
+        velocity: new THREE.Vector2(),
+        angularVelocity: 0,
+        radius: CHAIR_RADIUS,
+        occupied: false,
+        homePosition: chair.position.clone(),
+        homeRotation: chair.rotation.y,
+        previousPosition: chair.position.clone(),
+      };
+      chair.userData.physics = state;
+      this.stateByChair.set(chair, state);
+      return state;
+    });
+  }
+
+  getState(chair) {
+    return this.stateByChair.get(chair) || null;
+  }
+
+  setOccupied(chair, occupied) {
+    const state = this.getState(chair);
+    if (!state) return;
+    state.occupied = occupied;
+    if (occupied) {
+      state.velocity.set(0, 0);
+      state.angularVelocity = 0;
+    }
+  }
+
+  push(chair, x, z, torque = 0) {
+    const state = this.getState(chair);
+    if (!state || state.occupied) return false;
+    state.velocity.x += x;
+    state.velocity.y += z;
+    if (state.velocity.length() > CHAIR_MAX_SPEED) state.velocity.setLength(CHAIR_MAX_SPEED);
+    state.angularVelocity = THREE.MathUtils.clamp(
+      state.angularVelocity + torque,
+      -CHAIR_MAX_ANGULAR_SPEED,
+      CHAIR_MAX_ANGULAR_SPEED
+    );
+    return true;
+  }
+
+  pushFromCamera(chair, origin, strength = 1.65, point = null) {
+    const state = this.getState(chair);
+    if (!state || state.occupied) return false;
+    const dx = chair.position.x - origin.x;
+    const dz = chair.position.z - origin.z;
+    const len = Math.hypot(dx, dz);
+    const nx = len > 0.001 ? dx / len : 0;
+    const nz = len > 0.001 ? dz / len : -1;
+    const rx = point ? point.x - chair.position.x : 0;
+    const rz = point ? point.z - chair.position.z : 0;
+    const torque = (rz * nx - rx * nz) * strength * 2.4;
+    return this.push(chair, nx * strength, nz * strength, torque);
+  }
+
+  reset() {
+    for (const state of this.states) {
+      state.chair.position.copy(state.homePosition);
+      state.chair.rotation.y = state.homeRotation;
+      state.velocity.set(0, 0);
+      state.angularVelocity = 0;
+      state.occupied = false;
+      state.previousPosition.copy(state.homePosition);
+      for (const caster of state.chair.userData.casters) caster.rotation.y = caster.userData.restRotation;
+    }
+    this.lastPlayer = null;
+  }
+
+  updatePlayerContact(player, dt) {
+    if (!this.lastPlayer) {
+      this.lastPlayer = player.clone();
+      return;
+    }
+    const moveX = player.x - this.lastPlayer.x;
+    const moveZ = player.z - this.lastPlayer.z;
+    this.lastPlayer.copy(player);
+    if (Math.hypot(moveX, moveZ) > 0.75) return;
+    const playerVelocityX = moveX / dt;
+    const playerVelocityZ = moveZ / dt;
+
+    for (const state of this.states) {
+      if (state.occupied) continue;
+      const chair = state.chair;
+      const dx = chair.position.x - player.x;
+      const dz = chair.position.z - player.z;
+      const minDistance = PLAYER_RADIUS + state.radius + 0.015;
+      const distanceSq = dx * dx + dz * dz;
+      if (distanceSq >= minDistance * minDistance) continue;
+
+      const distance = Math.sqrt(distanceSq);
+      let nx = distance > 0.0001 ? dx / distance : -playerVelocityX;
+      let nz = distance > 0.0001 ? dz / distance : -playerVelocityZ;
+      if (Math.hypot(nx, nz) < 0.0001) {
+        nx = 1;
+        nz = 0;
+      }
+      const normalLength = Math.hypot(nx, nz);
+      nx /= normalLength;
+      nz /= normalLength;
+      const overlap = minDistance - distance;
+      moveWithCollision(chair.position, nx * overlap * 0.78, nz * overlap * 0.78, state.radius);
+      moveWithCollision(player, -nx * overlap * 0.22, -nz * overlap * 0.22, PLAYER_RADIUS);
+
+      const relativeSpeed = (playerVelocityX - state.velocity.x) * nx + (playerVelocityZ - state.velocity.y) * nz;
+      if (relativeSpeed > 0.02) {
+        const impulse = Math.min(1.1, relativeSpeed * 0.72 + 0.12);
+        state.velocity.x += nx * impulse;
+        state.velocity.y += nz * impulse;
+        if (state.velocity.length() > CHAIR_MAX_SPEED) state.velocity.setLength(CHAIR_MAX_SPEED);
+        const lateral = (playerVelocityX - state.velocity.x) * -nz + (playerVelocityZ - state.velocity.y) * nx;
+        state.angularVelocity = THREE.MathUtils.clamp(
+          state.angularVelocity + lateral * 0.16,
+          -CHAIR_MAX_ANGULAR_SPEED,
+          CHAIR_MAX_ANGULAR_SPEED
+        );
+      }
+    }
+  }
+
+  collideChairs() {
+    for (let i = 0; i < this.states.length; i++) {
+      const a = this.states[i];
+      for (let j = i + 1; j < this.states.length; j++) {
+        const b = this.states[j];
+        const dx = b.chair.position.x - a.chair.position.x;
+        const dz = b.chair.position.z - a.chair.position.z;
+        const minDistance = a.radius + b.radius;
+        const distanceSq = dx * dx + dz * dz;
+        if (distanceSq >= minDistance * minDistance) continue;
+
+        const distance = Math.sqrt(distanceSq);
+        const nx = distance > 0.0001 ? dx / distance : 1;
+        const nz = distance > 0.0001 ? dz / distance : 0;
+        const inverseA = a.occupied ? 0 : 1;
+        const inverseB = b.occupied ? 0 : 1;
+        const inverseSum = inverseA + inverseB;
+        if (inverseSum === 0) continue;
+
+        const correction = (minDistance - distance + 0.0005) / inverseSum;
+        a.chair.position.x -= nx * correction * inverseA;
+        a.chair.position.z -= nz * correction * inverseA;
+        b.chair.position.x += nx * correction * inverseB;
+        b.chair.position.z += nz * correction * inverseB;
+
+        const relativeX = b.velocity.x - a.velocity.x;
+        const relativeZ = b.velocity.y - a.velocity.y;
+        const normalSpeed = relativeX * nx + relativeZ * nz;
+        if (normalSpeed < 0) {
+          const impulse = (-(1 + 0.2) * normalSpeed) / inverseSum;
+          a.velocity.x -= nx * impulse * inverseA;
+          a.velocity.y -= nz * impulse * inverseA;
+          b.velocity.x += nx * impulse * inverseB;
+          b.velocity.y += nz * impulse * inverseB;
+        }
+      }
+    }
+  }
+
+  update(dt, player = null) {
+    if (dt <= 0) return;
+    if (player) this.updatePlayerContact(player, dt);
+    else this.lastPlayer = null;
+
+    const linearDamping = Math.exp(-CHAIR_LINEAR_DAMPING * dt);
+    const angularDamping = Math.exp(-CHAIR_ANGULAR_DAMPING * dt);
+
+    for (const state of this.states) {
+      state.previousPosition.copy(state.chair.position);
+      if (state.occupied) continue;
+
+      state.velocity.multiplyScalar(linearDamping);
+      state.angularVelocity *= angularDamping;
+      if (state.velocity.lengthSq() < 0.000025) state.velocity.set(0, 0);
+      if (Math.abs(state.angularVelocity) < 0.002) state.angularVelocity = 0;
+
+      const dx = state.velocity.x * dt;
+      const dz = state.velocity.y * dt;
+      const nextX = state.chair.position.x + dx;
+      if (isWalkable(nextX, state.chair.position.z, state.radius)) state.chair.position.x = nextX;
+      else state.velocity.x *= -0.18;
+      const nextZ = state.chair.position.z + dz;
+      if (isWalkable(state.chair.position.x, nextZ, state.radius)) state.chair.position.z = nextZ;
+      else state.velocity.y *= -0.18;
+      state.chair.rotation.y += state.angularVelocity * dt;
+    }
+
+    this.collideChairs();
+
+    for (const state of this.states) {
+      if (!isWalkable(state.chair.position.x, state.chair.position.z, state.radius)) {
+        state.chair.position.copy(state.previousPosition);
+        state.velocity.multiplyScalar(0.35);
+        state.angularVelocity *= 0.35;
+      }
+      state.chair.position.y = 0;
+
+      const movedX = state.chair.position.x - state.previousPosition.x;
+      const movedZ = state.chair.position.z - state.previousPosition.z;
+      const speed = state.velocity.length();
+      if (speed > 0.015) {
+        const target = Math.atan2(state.velocity.x, state.velocity.y) - state.chair.rotation.y;
+        for (const caster of state.chair.userData.casters) {
+          caster.rotation.y += shortestAngle(caster.rotation.y, target) * Math.min(1, dt * 12);
+        }
+      }
+      if (Math.hypot(movedX, movedZ) < 0.00001 && speed < 0.02) {
+        state.velocity.set(0, 0);
+        state.angularVelocity = 0;
+      }
+    }
+  }
 }
 
 function pcTower(mats) {
@@ -254,6 +497,7 @@ export function buildProps(mats) {
   const group = new THREE.Group();
   group.name = "props";
   const monitors = [];
+  const chairs = [];
 
   /* ---- office row along the right glazed wall ---- */
   const deskRow = desk(mats, 6.0, 0.75, 0.74);
@@ -296,9 +540,11 @@ export function buildProps(mats) {
 
   deskZ.forEach((z, i) => {
     const chair = officeChair(mats);
+    chair.name = `office-chair-right-${i + 1}`;
     chair.position.set(5.45, 0, z);
     chair.rotation.y = Math.PI / 2 + (i % 2 ? -0.13 : 0.09);
     group.add(chair);
+    chairs.push(chair);
   });
 
   /* ---- long desk along the left wall ---- */
@@ -329,9 +575,11 @@ export function buildProps(mats) {
     group.add(ms);
 
     const chair = officeChair(mats);
+    chair.name = `office-chair-left-${i + 1}`;
     chair.position.set(-5.95, 0, z);
     chair.rotation.y = -Math.PI / 2 + (i % 2 ? 0.12 : -0.09);
     group.add(chair);
+    chairs.push(chair);
   }
 
   /* ---- pallets ---- */
@@ -392,5 +640,5 @@ export function buildProps(mats) {
 
   addShadows(group, true, true);
 
-  return { group, monitors };
+  return { group, monitors, chairs };
 }

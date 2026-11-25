@@ -341,7 +341,6 @@ function buildDistribution(mats, renderer, code) {
 }
 
 let testBushingGeometry = null;
-let pressureGaugeFaceTexture = null;
 
 function createTestBushing(mats) {
   if (!testBushingGeometry) {
@@ -412,54 +411,6 @@ function createTestBushing(mats) {
   }
 
   return part;
-}
-
-function createPressureGaugeTexture(aniso) {
-  if (pressureGaugeFaceTexture) return pressureGaugeFaceTexture;
-
-  const canvas = document.createElement("canvas");
-  canvas.width = 256;
-  canvas.height = 256;
-  const ctx = canvas.getContext("2d");
-  ctx.fillStyle = "#f4f4ef";
-  ctx.fillRect(0, 0, 256, 256);
-  ctx.beginPath();
-  ctx.arc(128, 128, 116, 0, Math.PI * 2);
-  ctx.fillStyle = "#fbfbf7";
-  ctx.fill();
-  ctx.lineWidth = 5;
-  ctx.strokeStyle = "#5b6268";
-  ctx.stroke();
-
-  for (let i = 0; i <= 40; i++) {
-    const a = Math.PI * 0.75 + (i / 40) * Math.PI * 1.5;
-    const major = i % 5 === 0;
-    const inner = major ? 86 : 96;
-    ctx.beginPath();
-    ctx.moveTo(128 + Math.cos(a) * inner, 128 + Math.sin(a) * inner);
-    ctx.lineTo(128 + Math.cos(a) * 106, 128 + Math.sin(a) * 106);
-    ctx.lineWidth = major ? 3 : 1.5;
-    ctx.strokeStyle = i >= 36 ? "#c81020" : "#343a40";
-    ctx.stroke();
-  }
-
-  ctx.fillStyle = "#343a40";
-  ctx.font = "bold 17px Arial";
-  ctx.textAlign = "center";
-  ctx.textBaseline = "middle";
-  for (let i = 0; i <= 4; i++) {
-    const a = Math.PI * 0.75 + (i / 4) * Math.PI * 1.5;
-    ctx.fillText(String(i * 2), 128 + Math.cos(a) * 70, 128 + Math.sin(a) * 70);
-  }
-  ctx.font = "bold 15px Arial";
-  ctx.fillText("bar", 128, 171);
-  ctx.font = "12px Arial";
-  ctx.fillText("PRENSA", 128, 193);
-
-  pressureGaugeFaceTexture = new THREE.CanvasTexture(canvas);
-  pressureGaugeFaceTexture.colorSpace = THREE.SRGBColorSpace;
-  pressureGaugeFaceTexture.anisotropy = aniso;
-  return pressureGaugeFaceTexture;
 }
 
 function buildTest(mats, renderer, code) {
@@ -547,36 +498,6 @@ function buildTest(mats, renderer, code) {
   part.position.set(px, B + 0.06, 0);
   g.add(part);
 
-  const gauge = new THREE.Group();
-  gauge.position.set(px - 0.13, B + 0.355, 0.13);
-  gauge.add(cyl(0.045, 0.045, 0.024, mats.offWhite, 28, 0, 0, 0, { rotZ: Math.PI / 2 }));
-  const bezel = new THREE.Mesh(new THREE.TorusGeometry(0.039, 0.004, 8, 32), mats.chrome);
-  bezel.rotation.y = -Math.PI / 2;
-  bezel.position.x = -0.013;
-  gauge.add(bezel);
-  const gaugeFace = new THREE.Mesh(
-    new THREE.CircleGeometry(0.0365, 40),
-    new THREE.MeshStandardMaterial({
-      map: createPressureGaugeTexture(mats.aniso),
-      roughness: 0.52,
-      metalness: 0.04,
-    })
-  );
-  gaugeFace.rotation.y = -Math.PI / 2;
-  gaugeFace.position.x = -0.0145;
-  gauge.add(gaugeFace);
-  const needle = box(0.0018, 0.028, 0.0028, mats.redPaint, -0.016, 0.01, 0);
-  needle.name = "test-gauge-needle";
-  needle.rotation.x = -2.05;
-  gauge.add(needle);
-  gauge.add(cyl(0.0055, 0.0055, 0.004, mats.graphite, 16, -0.018, 0, 0, { rotZ: Math.PI / 2 }));
-  const gaugeGlass = new THREE.Mesh(new THREE.CircleGeometry(0.037, 36), mats.glassClear);
-  gaugeGlass.rotation.y = -Math.PI / 2;
-  gaugeGlass.position.x = -0.019;
-  gauge.add(gaugeGlass);
-  g.add(gauge);
-  g.add(cyl(0.006, 0.006, 0.13, mats.aluDark, 12, px - 0.065, B + 0.355, 0.13, { rotZ: Math.PI / 2 }));
-
   const partSensor = sensorBeam(mats, px + 0.112, B + 0.074, 0.035);
   partSensor.children[1].material = mats.ledGreen;
   g.add(partSensor);
@@ -621,13 +542,11 @@ function buildTest(mats, renderer, code) {
       const k = p < 0.4 ? easeInOut(p / 0.4) : p < 0.64 ? 1 : 1 - easeInOut((p - 0.64) / 0.36);
       press.setExtension(k);
       head.position.y = B + 0.19 - k * 0.05;
-      needle.rotation.x = -2.05 + k * 4.1;
       limitLed.material = p > 0.3 && p < 0.75 ? mats.ledRed : mats.ledOff;
     },
     reset() {
       press.setExtension(0);
       head.position.y = B + 0.19;
-      needle.rotation.x = -2.05;
       limitLed.material = mats.ledOff;
     },
   };
@@ -740,6 +659,9 @@ function buildAssembly(mats, renderer, code) {
   const px = 0.02;
   const pressZ = -0.035;
   const feedZ = 0.045;
+  const magX = px - 0.14;
+  const baseMagX = -0.25;
+  const baseMagZ = -0.16;
   const rb = (w, h, d, r, mat, x = 0, y = 0, z = 0) => {
     const mesh = new THREE.Mesh(new RoundedBoxGeometry(w, h, d, 3, r), mat);
     mesh.position.set(x, y, z);
@@ -815,8 +737,49 @@ function buildAssembly(mats, renderer, code) {
   }
 
   const basePart = createAssemblyBase(mats);
-  basePart.position.set(px, B + 0.04, pressZ);
+  basePart.name = "assembly-magazine-base-1";
+  basePart.position.set(baseMagX, B + 0.04, baseMagZ);
   g.add(basePart);
+
+  const magazineBases = [basePart];
+  for (let i = 1; i < 5; i++) {
+    const base = createAssemblyBase(mats);
+    base.name = `assembly-magazine-base-${i + 1}`;
+    base.position.set(baseMagX, B + 0.04 + i * 0.045, baseMagZ);
+    magazineBases.push(base);
+    g.add(base);
+  }
+  g.add(box(0.115, 0.008, 0.115, mats.aluDark, baseMagX, B + 0.02, baseMagZ));
+  g.add(box(0.11, 0.24, 0.004, mats.glassClear, baseMagX, B + 0.14, baseMagZ - 0.053));
+  for (const sx of [-1, 1]) {
+    g.add(cyl(0.003, 0.003, 0.25, mats.chrome, 12, baseMagX + sx * 0.057, B + 0.145, baseMagZ + 0.054));
+  }
+  g.add(rb(0.125, 0.01, 0.125, 0.003, mats.aluDark, baseMagX, B + 0.275, baseMagZ));
+  g.add(box(0.055, 0.008, 0.004, mats.hazard, baseMagX, B + 0.282, baseMagZ + 0.064));
+
+  const baseFeedX = pneumaticCylinder(mats, { len: 0.1, r: 0.018, stroke: 0.27 });
+  baseFeedX.rotation.z = -Math.PI / 2;
+  baseFeedX.position.set(baseMagX - 0.11, B + 0.06, baseMagZ);
+  g.add(baseFeedX);
+  g.add(rb(0.06, 0.028, 0.085, 0.003, mats.aluDark, baseMagX - 0.085, B + 0.04, baseMagZ));
+  const basePusherX = new THREE.Group();
+  basePusherX.name = "assembly-base-pusher-x";
+  basePusherX.position.set(baseMagX - 0.052, B + 0.06, baseMagZ);
+  basePusherX.add(rb(0.008, 0.035, 0.075, 0.002, mats.offWhite, 0, 0, 0));
+  basePusherX.add(box(0.004, 0.028, 0.06, mats.rubber, 0.006, 0, 0));
+  g.add(basePusherX);
+
+  const baseFeedZ = pneumaticCylinder(mats, { len: 0.07, r: 0.016, stroke: 0.125 });
+  baseFeedZ.rotation.x = Math.PI / 2;
+  baseFeedZ.position.set(px + 0.11, B + 0.06, baseMagZ - 0.085);
+  g.add(baseFeedZ);
+  g.add(rb(0.05, 0.03, 0.07, 0.003, mats.aluDark, px + 0.11, B + 0.04, baseMagZ - 0.065));
+  const basePusherZ = new THREE.Group();
+  basePusherZ.name = "assembly-base-pusher-z";
+  basePusherZ.position.set(px, B + 0.06, baseMagZ - 0.052);
+  basePusherZ.add(rb(0.075, 0.035, 0.008, 0.002, mats.offWhite, 0, 0, 0));
+  basePusherZ.add(box(0.06, 0.028, 0.004, mats.rubber, 0, 0, 0.006));
+  g.add(basePusherZ);
 
   const shuttle = new THREE.Group();
   shuttle.name = "assembly-shuttle";
@@ -832,26 +795,40 @@ function buildAssembly(mats, renderer, code) {
   g.add(shuttleCylinder);
   g.add(rb(0.06, 0.024, 0.05, 0.003, mats.aluDark, px, B + 0.047, 0.13));
 
+  const transfer = pneumaticCylinder(mats, { len: 0.1, r: 0.014, stroke: 0.14 });
+  transfer.rotation.z = -Math.PI / 2;
+  transfer.position.set(magX - 0.11, B + 0.14, feedZ);
+  g.add(transfer);
+  g.add(rb(0.055, 0.026, 0.07, 0.003, mats.aluDark, magX - 0.08, B + 0.125, feedZ));
+  const transferHead = new THREE.Group();
+  transferHead.name = "assembly-transfer-head";
+  transferHead.position.set(magX - 0.04, B + 0.15, feedZ);
+  transferHead.add(rb(0.008, 0.03, 0.06, 0.002, mats.offWhite, 0, 0, 0));
+  transferHead.add(box(0.004, 0.024, 0.048, mats.rubber, 0.006, 0, 0));
+  g.add(transferHead);
+
   const capPart = createAssemblyCap(mats);
-  capPart.position.set(px, B + 0.14, feedZ);
+  capPart.name = "assembly-magazine-cap-1";
+  capPart.position.set(magX, B + 0.14, feedZ);
   g.add(capPart);
 
   const magazineCaps = [capPart];
   for (let i = 1; i < 5; i++) {
     const cap = createAssemblyCap(mats);
-    cap.position.set(px, B + 0.14 + i * 0.022, feedZ);
+    cap.name = `assembly-magazine-cap-${i + 1}`;
+    cap.position.set(magX, B + 0.14 + i * 0.022, feedZ);
     magazineCaps.push(cap);
     g.add(cap);
   }
-  g.add(box(0.09, 0.008, 0.085, mats.aluDark, px, B + 0.13, feedZ));
-  g.add(box(0.004, 0.13, 0.085, mats.glassClear, px - 0.047, B + 0.2, feedZ));
-  g.add(box(0.004, 0.13, 0.085, mats.glassClear, px + 0.047, B + 0.2, feedZ));
-  g.add(box(0.09, 0.13, 0.004, mats.glassClear, px, B + 0.2, feedZ - 0.041));
+  g.add(box(0.09, 0.008, 0.085, mats.aluDark, magX, B + 0.13, feedZ));
+  g.add(box(0.004, 0.13, 0.085, mats.glassClear, magX - 0.047, B + 0.2, feedZ));
+  g.add(box(0.09, 0.13, 0.004, mats.glassClear, magX, B + 0.2, feedZ - 0.041));
+  g.add(box(0.09, 0.13, 0.004, mats.glassClear, magX, B + 0.2, feedZ + 0.041));
   for (const sx of [-1, 1]) {
-    g.add(cyl(0.003, 0.003, 0.14, mats.chrome, 12, px + sx * 0.047, B + 0.2, feedZ + 0.042));
+    g.add(cyl(0.003, 0.003, 0.14, mats.chrome, 12, magX + sx * 0.047, B + 0.2, feedZ + 0.042));
   }
-  g.add(rb(0.105, 0.01, 0.1, 0.003, mats.aluDark, px, B + 0.272, feedZ));
-  g.add(box(0.05, 0.008, 0.004, mats.hazard, px, B + 0.279, feedZ + 0.052));
+  g.add(rb(0.105, 0.01, 0.1, 0.003, mats.aluDark, magX, B + 0.272, feedZ));
+  g.add(box(0.05, 0.008, 0.004, mats.hazard, magX, B + 0.279, feedZ + 0.052));
 
   const pusher = pneumaticCylinder(mats, { len: 0.11, r: 0.02, stroke: 0.09 });
   pusher.rotation.z = Math.PI / 2;
@@ -868,36 +845,6 @@ function buildAssembly(mats, renderer, code) {
   for (const sx of [-1, 1]) {
     g.add(box(0.21, 0.024, 0.006, mats.alu, -0.145, B + 0.033, pressZ + sx * 0.06));
   }
-
-  const gauge = new THREE.Group();
-  gauge.position.set(px - 0.135, B + 0.33, 0.12);
-  gauge.add(cyl(0.043, 0.043, 0.024, mats.offWhite, 28, 0, 0, 0, { rotZ: Math.PI / 2 }));
-  const bezel = new THREE.Mesh(new THREE.TorusGeometry(0.037, 0.004, 8, 32), mats.chrome);
-  bezel.rotation.y = -Math.PI / 2;
-  bezel.position.x = -0.013;
-  gauge.add(bezel);
-  const gaugeFace = new THREE.Mesh(
-    new THREE.CircleGeometry(0.0345, 40),
-    new THREE.MeshStandardMaterial({
-      map: createPressureGaugeTexture(mats.aniso),
-      roughness: 0.52,
-      metalness: 0.04,
-    })
-  );
-  gaugeFace.rotation.y = -Math.PI / 2;
-  gaugeFace.position.x = -0.0145;
-  gauge.add(gaugeFace);
-  const needle = box(0.0018, 0.026, 0.0026, mats.redPaint, -0.016, 0.009, 0);
-  needle.name = "assembly-gauge-needle";
-  needle.rotation.x = -2.05;
-  gauge.add(needle);
-  gauge.add(cyl(0.005, 0.005, 0.004, mats.graphite, 16, -0.018, 0, 0, { rotZ: Math.PI / 2 }));
-  const gaugeGlass = new THREE.Mesh(new THREE.CircleGeometry(0.035, 36), mats.glassClear);
-  gaugeGlass.rotation.y = -Math.PI / 2;
-  gaugeGlass.position.x = -0.019;
-  gauge.add(gaugeGlass);
-  g.add(gauge);
-  g.add(cyl(0.006, 0.006, 0.12, mats.aluDark, 12, px - 0.065, B + 0.33, 0.12, { rotZ: Math.PI / 2 }));
 
   const baseSensor = sensorBeam(mats, px + 0.103, B + 0.077, pressZ);
   baseSensor.children[1].material = mats.ledGreen;
@@ -951,9 +898,10 @@ function buildAssembly(mats, renderer, code) {
   g.add(nameplate(mats, renderer, code, "MONTAGEM"));
 
   const seg = (p, a, b) => easeInOut(clamp01((p - a) / (b - a)));
-  const stages = ["ALIMENTANDO", "POSICIONANDO", "PRENSANDO", "VERIFICANDO", "EXPULSANDO"];
+  const stages = ["CARREGANDO BASE", "ALIMENTANDO", "POSICIONANDO", "PRENSANDO", "VERIFICANDO", "EXPULSANDO"];
   const completed = [];
   let cycles = 0;
+  let activeBase = null;
   let activeCap = null;
   let stage = -1;
   let hmiRef = null;
@@ -963,16 +911,22 @@ function buildAssembly(mats, renderer, code) {
   };
 
   function prepareCycle() {
-    if (cycles >= magazineCaps.length) return false;
+    if (cycles >= magazineBases.length || cycles >= magazineCaps.length) return false;
+    activeBase = magazineBases[cycles];
+    activeBase.visible = true;
+    activeBase.position.set(baseMagX, B + 0.04, baseMagZ);
     activeCap = magazineCaps[cycles];
     activeCap.visible = true;
-    activeCap.position.set(px, B + 0.14, feedZ);
+    activeCap.position.set(magX, B + 0.14, feedZ);
     stage = -1;
     return true;
   }
 
   function refreshSensors(pressing = false, transferring = false) {
-    baseSensor.children[1].material = mats.ledGreen;
+    const baseAtFixture = activeBase
+      && Math.abs(activeBase.position.x - px) < 0.012
+      && Math.abs(activeBase.position.z - pressZ) < 0.012;
+    baseSensor.children[1].material = baseAtFixture ? mats.ledGreen : mats.ledOff;
     capSensor.children[1].material = activeCap && pForSensorActive ? mats.ledBlue : mats.ledOff;
     shuttleSensor.children[1].material = transferring ? mats.ledBlue : mats.ledOff;
     limitLed.material = pressing ? mats.ledRed : mats.ledOff;
@@ -983,38 +937,58 @@ function buildAssembly(mats, renderer, code) {
   const ctl = {
     apply(action, p) {
       if (action !== "assemble") return;
-      if (cycles >= magazineCaps.length) {
+      if (cycles >= magazineBases.length || cycles >= magazineCaps.length) {
         light.red.material = mats.ledRed;
         light.amber.material = mats.ledOff;
         light.green.material = mats.ledOff;
         hmiRef?.draw("MAGAZINE VAZIO", "error");
-        return { stop: "MAGAZINE VAZIO", message: "Magazine de tampas vazio · programa interrompido" };
+        return { stop: "MAGAZINE VAZIO", message: "Magazine de bases ou tampas vazio · programa interrompido" };
       }
-      if (!activeCap) prepareCycle();
-      if (!activeCap) return;
+      if (!activeBase || !activeCap) prepareCycle();
+      if (!activeBase || !activeCap) return;
 
-      const feed = seg(p, 0, 0.22) * (1 - seg(p, 0.28, 0.42));
-      const shuttleMove = seg(p, 0.2, 0.4) * (1 - seg(p, 0.9, 1));
-      const pressMove = seg(p, 0.36, 0.56) * (1 - seg(p, 0.64, 0.76));
-      const eject = seg(p, 0.76, 0.9) * (1 - seg(p, 0.94, 1));
-      const capDrop = seg(p, 0, 0.22) * 0.057 + pressMove * 0.006;
-      const capSlide = seg(p, 0.2, 0.4);
+      const baseMoveX = seg(p, 0, 0.12);
+      const baseMoveZ = seg(p, 0.1, 0.24);
+      const baseFeedXExtension = baseMoveX * (1 - seg(p, 0.26, 0.38));
+      const baseFeedZExtension = baseMoveZ * (1 - seg(p, 0.32, 0.44));
+      const capTransfer = seg(p, 0.24, 0.38);
+      const transferMove = capTransfer * (1 - seg(p, 0.42, 0.54));
+      const feed = seg(p, 0.32, 0.46) * (1 - seg(p, 0.52, 0.64));
+      const shuttleMove = seg(p, 0.46, 0.6) * (1 - seg(p, 0.9, 1));
+      const pressMove = seg(p, 0.58, 0.72) * (1 - seg(p, 0.76, 0.84));
+      const eject = seg(p, 0.82, 0.94) * (1 - seg(p, 0.96, 1));
+      const baseEject = seg(p, 0.82, 0.94);
+      const capDrop = seg(p, 0.32, 0.46) * 0.057 + pressMove * 0.006;
+      const capSlide = seg(p, 0.46, 0.6);
+      baseFeedX.setExtension(baseFeedXExtension);
+      baseFeedZ.setExtension(baseFeedZExtension);
+      basePusherX.position.x = baseMagX - 0.052 + baseFeedXExtension * 0.27;
+      basePusherZ.position.z = baseMagZ - 0.052 + baseFeedZExtension * 0.125;
 
+      transfer.setExtension(transferMove);
       feeder.setExtension(feed);
       shuttleCylinder.setExtension(shuttleMove);
       press.setExtension(pressMove);
       pusher.setExtension(eject);
+      transferHead.position.x = magX - 0.04 + transferMove * 0.14;
       feederHead.position.y = B + 0.2 - feed * 0.07;
       pressHead.position.y = B + 0.167 - pressMove * 0.05;
       shuttle.position.z = feedZ - shuttleMove * (feedZ - pressZ);
-      activeCap.position.set(px, B + 0.14 - capDrop, feedZ - capSlide * (feedZ - pressZ));
-      basePart.position.x = px - eject * 0.14;
+      activeCap.position.set(
+        magX + capTransfer * (px - magX) - baseEject * 0.14,
+        B + 0.14 - capDrop,
+        feedZ - capSlide * (feedZ - pressZ)
+      );
+      activeBase.position.set(
+        baseMagX + baseMoveX * (px - baseMagX) - baseEject * 0.14,
+        B + 0.04,
+        baseMagZ + baseMoveZ * (pressZ - baseMagZ)
+      );
       paddle.position.x = px + 0.072 - eject * 0.13;
-      needle.rotation.x = -2.05 + pressMove * 4.1;
-      pForSensorActive = p > 0.08 && p < 0.42;
+      pForSensorActive = p > 0.32 && p < 0.64;
       refreshSensors(pressMove > 0.35, shuttleMove > 0.1 && shuttleMove < 0.95);
 
-      let nextStage = p < 0.2 ? 0 : p < 0.36 ? 1 : p < 0.64 ? 2 : p < 0.76 ? 3 : 4;
+      const nextStage = p < 0.24 ? 0 : p < 0.46 ? 1 : p < 0.58 ? 2 : p < 0.76 ? 3 : p < 0.82 ? 4 : 5;
       if (nextStage !== stage) {
         stage = nextStage;
         hmiRef?.draw(stages[stage], stage === 4 ? "done" : "running");
@@ -1024,7 +998,7 @@ function buildAssembly(mats, renderer, code) {
       light.green.material = stage >= 3 ? mats.ledGreen : mats.ledOff;
     },
     commit(action) {
-      if (action !== "assemble" || !activeCap || cycles >= magazineCaps.length) return;
+      if (action !== "assemble" || !activeBase || !activeCap || cycles >= magazineBases.length || cycles >= magazineCaps.length) return;
       const finished = new THREE.Group();
       finished.name = `assembly-finished-${cycles + 1}`;
       const finishedBase = createAssemblyBase(mats);
@@ -1034,14 +1008,19 @@ function buildAssembly(mats, renderer, code) {
       finished.position.set(px - 0.13 - completed.length * 0.078, B + 0.025, pressZ);
       g.add(finished);
       completed.push(finished);
+      activeBase.visible = false;
       activeCap.visible = false;
+      activeBase = null;
       activeCap = null;
       cycles += 1;
-      for (let i = cycles; i < magazineCaps.length; i++) {
-        magazineCaps[i].position.set(px, B + 0.14 + (i - cycles) * 0.022, feedZ);
+      for (let i = cycles; i < magazineBases.length; i++) {
+        magazineBases[i].position.set(baseMagX, B + 0.04 + (i - cycles) * 0.045, baseMagZ);
       }
-      basePart.position.set(px, B + 0.04, pressZ);
+      for (let i = cycles; i < magazineCaps.length; i++) {
+        magazineCaps[i].position.set(magX, B + 0.14 + (i - cycles) * 0.022, feedZ);
+      }
       paddle.position.x = px + 0.072;
+      refreshSensors();
       light.green.material = cycles < magazineCaps.length ? mats.ledGreen : mats.ledOff;
       light.amber.material = cycles < magazineCaps.length ? mats.ledAmber : mats.ledOff;
       light.red.material = cycles >= magazineCaps.length ? mats.ledRed : mats.ledOff;
@@ -1054,23 +1033,32 @@ function buildAssembly(mats, renderer, code) {
       for (const part of completed) g.remove(part);
       completed.length = 0;
       cycles = 0;
+      activeBase = null;
       activeCap = null;
       stage = -1;
       pForSensorActive = false;
+      magazineBases.forEach((base, i) => {
+        base.visible = true;
+        base.position.set(baseMagX, B + 0.04 + i * 0.045, baseMagZ);
+      });
       magazineCaps.forEach((cap, i) => {
         cap.visible = true;
-        cap.position.set(px, B + 0.14 + i * 0.022, feedZ);
+        cap.position.set(magX, B + 0.14 + i * 0.022, feedZ);
       });
       press.setExtension(0);
+      transfer.setExtension(0);
       feeder.setExtension(0);
       shuttleCylinder.setExtension(0);
       pusher.setExtension(0);
+      baseFeedX.setExtension(0);
+      baseFeedZ.setExtension(0);
+      transferHead.position.x = magX - 0.04;
       pressHead.position.y = B + 0.167;
       feederHead.position.y = B + 0.2;
       shuttle.position.z = feedZ;
-      basePart.position.set(px, B + 0.04, pressZ);
+      basePusherX.position.x = baseMagX - 0.052;
+      basePusherZ.position.z = baseMagZ - 0.052;
       paddle.position.x = px + 0.072;
-      needle.rotation.x = -2.05;
       refreshSensors();
       light.red.material = mats.ledOff;
       light.amber.material = mats.ledAmber;
@@ -1079,7 +1067,7 @@ function buildAssembly(mats, renderer, code) {
     setHmi,
   };
 
-  reset();
+  ctl.reset();
 
   return { group: g, height: 0.56, ctl, light, persistResult: true };
 }
@@ -1194,6 +1182,11 @@ function buildConveyorStation(mats, renderer, code) {
   const MAX_PIECES = 5;
   const BIN_CAP = 3;
   const LOT_SIZE = 3 * BIN_CAP; // one full set of ramps: 3 pieces per type
+  const MAG_X = -0.31;
+  const MAG_Z = 0.15;
+  const MAG_PIECE_Y = 0.025;
+  const MAG_PITCH = 0.075;
+  const MAG_COLS = BIN_CAP;
   const BELT_MIN = -length / 2;
   const BELT_LOOP = ENTRY_Z - BELT_MIN;
   const PIECE_Y = 0.071;
@@ -1209,6 +1202,64 @@ function buildConveyorStation(mats, renderer, code) {
     black: { z: -0.2, color: mats.blackPlastic, label: "PRETAS", sub: "RAMPA 3" },
   };
   const RAMP_ANGLE = -0.18;
+
+  const magazine = new THREE.Group();
+  magazine.name = `${code}-conveyor-magazine`;
+  magazine.position.set(MAG_X, B + 0.036, MAG_Z);
+  for (const sx of [-1, 1]) {
+    for (const sz of [-1, 1]) {
+      magazine.add(box(0.024, 0.036, 0.024, mats.aluDark, sx * 0.098, -0.018, sz * 0.118));
+    }
+  }
+  magazine.add(box(0.245, 0.012, 0.29, mats.aluDark, 0, 0.006, 0));
+  magazine.add(box(0.008, 0.12, 0.29, mats.alu, 0.116, 0.062, 0));
+  magazine.add(box(0.245, 0.12, 0.008, mats.alu, 0, 0.062, 0.141));
+  magazine.add(box(0.245, 0.12, 0.008, mats.alu, 0, 0.062, -0.141));
+  magazine.add(box(0.006, 0.012, 0.265, mats.alu, 0.0375, 0.05, 0));
+  magazine.add(box(0.006, 0.012, 0.265, mats.alu, -0.0375, 0.05, 0));
+  magazine.add(box(0.145, 0.012, 0.006, mats.alu, 0, 0.05, 0.0375));
+  magazine.add(box(0.145, 0.012, 0.006, mats.alu, 0, 0.05, -0.0375));
+  magazine.add(box(0.222, 0.09, 0.004, mats.glassClear, -0.008, 0.056, 0.142));
+  magazine.add(box(0.004, 0.09, 0.26, mats.glassClear, -0.119, 0.056, 0));
+
+  for (const [row, type] of TYPES.entries()) {
+    magazine.add(
+      box(0.222, 0.0015, 0.015, RAMP[type].color, -0.008, 0.013, (row - 1) * MAG_PITCH)
+    );
+  }
+
+  const magazinePieces = TYPES.map((type, row) =>
+    Array.from({ length: MAG_COLS }, (_, col) => {
+      const piece = createSortPuck(mats, 0.032, 0.022);
+      piece.name = `${code}-magazine-${type}-${col + 1}`;
+      piece.userData.setType(type);
+      piece.position.set((col - 1) * MAG_PITCH, MAG_PIECE_Y, (row - 1) * MAG_PITCH);
+      magazine.add(piece);
+      return piece;
+    })
+  );
+
+  g.add(
+    box(
+      0.15,
+      0.008,
+      0.018,
+      mats.alu,
+      -0.116,
+      B + 0.05,
+      MAG_Z,
+      { rotZ: 0.08 }
+    )
+  );
+  const magazinePlate = new THREE.Mesh(
+    new THREE.PlaneGeometry(0.2, 0.075),
+    makePlateMaterial(renderer, "MAGAZINE", "9 PEÇAS")
+  );
+  magazinePlate.scale.setScalar(0.4);
+  magazinePlate.position.set(MAG_X - 0.123, B + 0.108, MAG_Z + 0.087);
+  magazinePlate.rotation.y = -Math.PI / 2;
+  g.add(magazinePlate);
+  g.add(magazine);
 
   // three lateral ramps, each with a colour code and an end stop
   for (const type of TYPES) {
@@ -1365,11 +1416,27 @@ function buildConveyorStation(mats, renderer, code) {
     return piece;
   }
 
+  function takeMagazinePiece(type) {
+    const stock = magazinePieces[TYPES.indexOf(type)];
+    const piece = stock.findLast((p) => p.visible);
+    if (!piece) return false;
+    piece.visible = false;
+    return true;
+  }
+
+  function restoreMagazine() {
+    magazinePieces.forEach((row) => row.forEach((piece) => {
+      piece.visible = true;
+    }));
+  }
+
   function feed() {
     if (fed >= LOT_SIZE) return;
     if (pieces.length >= MAX_PIECES) return;
     if (pieces.some((p) => p.z > ENTRY_Z - 0.12)) return;
-    spawn(TYPES[feedIndex % TYPES.length], ENTRY_Z);
+    const type = TYPES[feedIndex % TYPES.length];
+    if (!takeMagazinePiece(type)) return;
+    spawn(type, ENTRY_Z);
     feedIndex += 1;
     fed += 1;
     sinceFeed = 0;
@@ -1564,6 +1631,8 @@ function buildConveyorStation(mats, renderer, code) {
     gate.leds.metal.material = mats.ledOff;
     gate.leds.color.material = mats.ledOff;
     gate.beam.visible = false;
+    restoreMagazine();
+    takeMagazinePiece("metal");
     spawn("metal", ENTRY_Z);
     updateSensor();
   }
@@ -1770,9 +1839,9 @@ const INFO = {
   test: {
     name: "Estação de Teste",
     type: "Pneumática",
-    desc: "Prensa pneumática que verifica a montagem da peça. O cilindro desce sob pressão controlada e a altura final é conferida por sensores, com leitura no manômetro.",
-    tech: ["Prensa pneumática", "Manômetro", "Válvula reguladora", "Sensores de posição"],
-    tip: "A prensa desce até encostar na peça do ninho. Observe o manômetro: a leitura indica a pressão aplicada durante o teste.",
+    desc: "Prensa pneumática que verifica a montagem da peça. O cilindro desce sob pressão controlada e a altura final é conferida por sensores.",
+    tech: ["Prensa pneumática", "Válvula reguladora", "Sensores de posição"],
+    tip: "A prensa desce até encostar na peça do ninho. Os sensores confirmam o posicionamento e o fim do curso durante o teste.",
   },
   processing: {
     name: "Estação de Processamento",
@@ -1784,9 +1853,9 @@ const INFO = {
   assembly: {
     name: "Estação de Montagem",
     type: "Eletropneumática",
-    desc: "Célula de montagem com alimentador, shuttle de posicionamento, prensa e expulsor lateral. Sensores confirmam cada etapa e um magazine transparente fornece cinco tampas por ciclo.",
-    tech: ["Magazine de 5 tampas", "Shuttle linear", "Prensa pneumática", "Sensores de posição", "Expulsor lateral"],
-    tip: "O alimentador captura a tampa, o shuttle a leva até a base, a prensa assenta o conjunto e o expulsor o envia para a bandeja. Ao usar as cinco tampas, o programa é interrompido até a reposição.",
+    desc: "Célula de montagem com magazines de bases e tampas, alimentadores de dois eixos, escapador, shuttle de posicionamento, prensa e expulsor lateral. Sensores confirmam cada etapa e os magazines transparentes fornecem cinco conjuntos por ciclo.",
+    tech: ["Magazine de 5 bases", "Magazine de 5 tampas", "Alimentador de 2 eixos", "Escapador linear", "Shuttle linear", "Prensa pneumática", "Sensores de posição", "Expulsor lateral"],
+    tip: "O alimentador retira uma base do magazine e a posiciona no ninho. Em seguida, o escapador transfere a tampa, o shuttle a alinha, a prensa assenta o conjunto e o expulsor o envia para a bandeja. Ao usar as cinco bases e tampas, o programa é interrompido até a reposição.",
   },
   storage: {
     name: "Estação de Armazenagem",
@@ -1798,9 +1867,9 @@ const INFO = {
   conveyor: {
     name: "Estação de Transferência",
     type: "Sensoriamento",
-    desc: "Esteira com triagem por material. Um sensor indutivo identifica peças metálicas e um sensor óptico reflexivo distingue o plástico colorido do preto (sem reflexão). Três desviadores laterais encaminham cada peça para a rampa correspondente.",
-    tech: ["Esteira transportadora", "Sensor indutivo", "Sensor óptico reflexivo", "3 cilindros de desvio", "3 rampas de triagem"],
-    tip: "A leitura é: indutivo ligado = metálica; indutivo desligado e óptico ligado = plástico colorido; os dois desligados = plástico preto. Cada bloco de separação alinha a peça com o cilindro e a desvia. O lote tem 9 peças (3 de cada tipo) e é finito: as peças que não são desviadas voltam para o início da esteira e continuam rodando. Quando todas forem separadas, o programa para com LOTE CONCLUÍDO.",
+    desc: "Esteira com triagem por material e magazine lateral de nove peças: três metálicas, três plásticas coloridas e três pretas. Um sensor indutivo identifica o metal e um sensor óptico reflexivo distingue o plástico colorido do preto. Três desviadores laterais encaminham cada peça para a rampa correspondente.",
+    tech: ["Magazine de 9 peças", "Esteira transportadora", "Sensor indutivo", "Sensor óptico reflexivo", "3 cilindros de desvio", "3 rampas de triagem"],
+    tip: "O magazine lateral começa com nove peças (3 de cada tipo) e o estoque visível diminui a cada alimentação da esteira. A leitura é: indutivo ligado = metálica; indutivo desligado e óptico ligado = plástico colorida; os dois desligados = plástico preta. Cada bloco de separação alinha a peça com o cilindro e a desvia. As peças que não são desviadas voltam para o início da esteira. Quando todas forem separadas, o programa para com LOTE CONCLUÍDO; o reset repõe o magazine.",
   },
 };
 

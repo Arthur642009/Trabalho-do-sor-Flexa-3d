@@ -6,7 +6,7 @@ import { CSS2DRenderer, CSS2DObject } from "three/addons/renderers/CSS2DRenderer
 import { createMaterials } from "./materials.js";
 import { buildRoom } from "./room.js";
 import { buildLines } from "./stations.js";
-import { buildProps } from "./props.js";
+import { buildProps, ChairPhysics } from "./props.js";
 import { buildRobot } from "./robot.js";
 import { createVR } from "./vr.js";
 import { createWalk } from "./walk.js";
@@ -26,8 +26,6 @@ const renderer = new THREE.WebGLRenderer({
   antialias: true,
   powerPreference: "high-performance",
 });
-renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.75));
-renderer.setSize(window.innerWidth, window.innerHeight);
 renderer.shadowMap.enabled = true;
 renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
@@ -59,11 +57,44 @@ scene.environmentIntensity = 0.55;
 pmrem.dispose();
 
 const labelRenderer = new CSS2DRenderer();
-labelRenderer.setSize(window.innerWidth, window.innerHeight);
 labelRenderer.domElement.style.position = "absolute";
 labelRenderer.domElement.style.inset = "0";
 labelRenderer.domElement.style.pointerEvents = "none";
 document.getElementById("labels").appendChild(labelRenderer.domElement);
+
+function viewportSize() {
+  const viewport = window.visualViewport;
+  return {
+    width: Math.max(1, Math.round(viewport?.width || window.innerWidth)),
+    height: Math.max(1, Math.round(viewport?.height || window.innerHeight)),
+    offsetLeft: viewport?.offsetLeft || 0,
+    offsetTop: viewport?.offsetTop || 0,
+  };
+}
+
+const touchLayout = matchMedia("(pointer: coarse), (max-width: 820px)");
+let touchMode = touchLayout.matches;
+touchLayout.addEventListener("change", (ev) => {
+  touchMode = ev.matches;
+  document.body.classList.toggle("touch-device", touchMode);
+});
+document.body.classList.toggle("touch-device", touchMode);
+
+function resizeScene() {
+  const { width, height, offsetLeft, offsetTop } = viewportSize();
+  const aspect = width / height;
+  const pixelLimit = width < 700 ? 1.25 : aspect < 1 ? 1.5 : 1.75;
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, pixelLimit));
+  renderer.setSize(width, height, false);
+  labelRenderer.setSize(width, height);
+  labelRenderer.domElement.style.left = `${offsetLeft}px`;
+  labelRenderer.domElement.style.top = `${offsetTop}px`;
+  camera.aspect = aspect;
+  camera.fov = aspect < 0.8 ? 58 : aspect < 1.2 ? 52 : 48;
+  camera.updateProjectionMatrix();
+}
+
+resizeScene();
 
 /* ------------------------------------------------------------------ */
 /* build the lab                                                       */
@@ -75,6 +106,7 @@ const lines = buildLines(mats, renderer);
 scene.add(lines.root);
 const props = buildProps(mats);
 scene.add(props.group);
+const chairPhysics = new ChairPhysics(props.chairs);
 const robot = buildRobot(scene, mats, renderer);
 
 const updaters = lines.updaters;
@@ -110,6 +142,9 @@ for (const mon of props.monitors) {
   });
 }
 
+const chairHits = props.chairs.map((chair) => chair.userData.hit);
+const hitToChair = new Map(chairHits.map((hit) => [hit, hit.userData.chair]));
+
 const hmiHits = [];
 const hmiToStation = new Map();
 for (const s of lines.stations) {
@@ -120,9 +155,14 @@ for (const s of lines.stations) {
 
 const CENTER = new THREE.Vector2(0, 0);
 
+function pointerFromClient(clientX, clientY) {
+  const { width, height, offsetLeft, offsetTop } = viewportSize();
+  pointer.x = ((clientX - offsetLeft) / width) * 2 - 1;
+  pointer.y = -((clientY - offsetTop) / height) * 2 + 1;
+}
+
 function pickInteractable(clientX, clientY) {
-  pointer.x = (clientX / window.innerWidth) * 2 - 1;
-  pointer.y = -(clientY / window.innerHeight) * 2 + 1;
+  pointerFromClient(clientX, clientY);
   raycaster.setFromCamera(pointer, camera);
   const hmi = raycaster.intersectObjects(hmiHits, false)[0];
   const dev = raycaster.intersectObjects(devScreens, false)[0];
@@ -131,6 +171,13 @@ function pickInteractable(clientX, clientY) {
   }
   if (dev) return { type: "dev", monitor: dev.object.parent };
   return null;
+}
+
+function pickChair(clientX, clientY) {
+  pointerFromClient(clientX, clientY);
+  raycaster.setFromCamera(pointer, camera);
+  const hit = raycaster.intersectObjects(chairHits, false)[0];
+  return hit ? { chair: hitToChair.get(hit.object), point: hit.point } : null;
 }
 
 function openBlockLab(station) {
@@ -166,6 +213,7 @@ let sit = null;
 function cancelSit(restore) {
   if (!sit) return;
   const back = sit.back;
+  if (sit.chair) chairPhysics.setOccupied(sit.chair, false);
   sit = null;
   controls.enabled = true;
   if (!restore) return;
@@ -191,10 +239,25 @@ function beginSit(monitor) {
   }
   if (sit || studio.isOpen() || vr.active) return;
 
+  const chair = props.chairs.reduce((nearest, candidate) => {
+    const distance = Math.hypot(
+      candidate.position.x - seat.stand.x,
+      candidate.position.z - seat.stand.z
+    );
+    return !nearest || distance < nearest.distance ? { chair: candidate, distance } : nearest;
+  }, null)?.chair;
+  const home = chair?.userData.physics?.homePosition;
+  const offset = home ? chair.position.clone().sub(home) : new THREE.Vector3();
+  const stand = seat.stand.clone().add(offset);
+  const eye = seat.eye.clone().add(offset);
+  const look = seat.look.clone().add(offset);
+  if (chair) chairPhysics.setOccupied(chair, true);
+
   // walking has no up-to-date orbit target, so rebuild it from the look direction
   const walking = walk.active;
   const dir = camera.getWorldDirection(new THREE.Vector3());
   sit = {
+    chair,
     back: {
       pos: camera.position.clone(),
       target: walking
@@ -216,16 +279,16 @@ function beginSit(monitor) {
   tween = {
     p0: camera.position.clone(),
     t0: controls.target.clone(),
-    p1: seat.stand.clone(),
-    t1: seat.look.clone(),
+    p1: stand,
+    t1: look,
     t: 0,
     dur: 1.05,
     onDone: () => {
       tween = {
         p0: camera.position.clone(),
-        t0: seat.look.clone(),
-        p1: seat.eye.clone(),
-        t1: seat.look.clone(),
+        t0: look,
+        p1: eye,
+        t1: look,
         t: 0,
         dur: 0.7,
         onDone: () => studio.open(),
@@ -353,8 +416,7 @@ function closePanel() {
 }
 
 function pickEntry(clientX, clientY) {
-  pointer.x = (clientX / window.innerWidth) * 2 - 1;
-  pointer.y = -(clientY / window.innerHeight) * 2 + 1;
+  pointerFromClient(clientX, clientY);
   raycaster.setFromCamera(pointer, camera);
   const hits = raycaster.intersectObjects(
     entries.map((e) => e.hitbox),
@@ -383,6 +445,12 @@ renderer.domElement.addEventListener("pointerup", (ev) => {
     beginSit(target.monitor);
     return;
   }
+  const chairHit = pickChair(ev.clientX, ev.clientY);
+  if (chairHit?.chair) {
+    chairPhysics.pushFromCamera(chairHit.chair, camera.position, 1.65, chairHit.point);
+    closePanel();
+    return;
+  }
   const entry = pickEntry(ev.clientX, ev.clientY);
   if (entry) select(entry);
   else closePanel();
@@ -395,8 +463,9 @@ renderer.domElement.addEventListener("pointermove", (ev) => {
   if (now - hoverCheck < 90) return;
   hoverCheck = now;
   const target = pickInteractable(ev.clientX, ev.clientY);
-  const entry = target ? null : pickEntry(ev.clientX, ev.clientY);
-  renderer.domElement.style.cursor = target || entry ? "pointer" : "grab";
+  const chairHit = target ? null : pickChair(ev.clientX, ev.clientY);
+  const entry = target || chairHit ? null : pickEntry(ev.clientX, ev.clientY);
+  renderer.domElement.style.cursor = target || chairHit || entry ? "pointer" : "grab";
   renderer.domElement.title =
     target?.type === "hmi"
       ? target.station?.isRobot
@@ -404,7 +473,9 @@ renderer.domElement.addEventListener("pointermove", (ev) => {
         : "Programar bancada em blocos"
       : target?.type === "dev"
         ? "Abrir Dev Lab — atividades de programação"
-        : "";
+        : chairHit
+          ? "Clique para empurrar a cadeira"
+          : "";
 });
 
 document.getElementById("panel-close").addEventListener("click", closePanel);
@@ -420,11 +491,12 @@ const crosshair = document.getElementById("crosshair");
 const crosshairHint = crosshair.querySelector(".ch-hint");
 let aimTimer = 0;
 
-function pickAtCenter(maxHmi, maxEntry, maxDev = 4.5) {
+function pickAtCenter(maxHmi, maxEntry, maxDev = 4.5, maxChair = 3.2) {
   raycaster.setFromCamera(CENTER, camera);
   const hmi = raycaster.intersectObjects(hmiHits, false)[0];
   const dev = raycaster.intersectObjects(devScreens, false)[0];
   const hit = raycaster.intersectObjects(hitboxes, false)[0];
+  const chairHit = raycaster.intersectObjects(chairHits, false)[0];
   const hits = [];
   if (hmi && hmi.distance <= maxHmi) {
     hits.push({ type: "hmi", station: hmiToStation.get(hmi.object) || null, d: hmi.distance });
@@ -434,6 +506,9 @@ function pickAtCenter(maxHmi, maxEntry, maxDev = 4.5) {
   }
   if (hit && hit.distance <= maxEntry) {
     hits.push({ type: "entry", entry: hitToEntry.get(hit.object) || null, d: hit.distance });
+  }
+  if (chairHit && chairHit.distance <= maxChair) {
+    hits.push({ type: "chair", chair: hitToChair.get(chairHit.object) || null, d: chairHit.distance });
   }
   hits.sort((a, b) => a.d - b.d);
   return hits[0] || null;
@@ -447,6 +522,21 @@ function openHmi(station) {
 
 function inspectCenter(ev) {
   if (!walk.active) return;
+  if (walk.isTouch() && (!ev || typeof ev.clientX !== "number")) {
+    const aim = pickAtCenter(5.5, 7.5);
+    if (aim?.type === "hmi" && aim.station) {
+      openHmi(aim.station);
+    } else if (aim?.type === "dev") {
+      beginSit(aim.monitor);
+    } else if (aim?.type === "chair" && aim.chair) {
+      chairPhysics.pushFromCamera(aim.chair, camera.position);
+    } else if (aim?.type === "entry" && aim.entry) {
+      select(aim.entry);
+    } else {
+      closePanel();
+    }
+    return;
+  }
   // Without pointer lock the cursor still has a real position: inspect under it.
   if (ev && !walk.isLocked() && typeof ev.clientX === "number") {
     const target = pickInteractable(ev.clientX, ev.clientY);
@@ -456,6 +546,11 @@ function inspectCenter(ev) {
     }
     if (target?.type === "dev") {
       beginSit(target.monitor);
+      return;
+    }
+    const chairHit = pickChair(ev.clientX, ev.clientY);
+    if (chairHit?.chair) {
+      chairPhysics.pushFromCamera(chairHit.chair, camera.position, 1.65, chairHit.point);
       return;
     }
     const entry = pickEntry(ev.clientX, ev.clientY);
@@ -468,13 +563,15 @@ function inspectCenter(ev) {
     openHmi(aim.station);
   } else if (aim?.type === "dev") {
     beginSit(aim.monitor);
+  } else if (aim?.type === "chair" && aim.chair) {
+    chairPhysics.pushFromCamera(aim.chair, camera.position);
   } else if (aim?.type === "entry" && aim.entry) {
     select(aim.entry);
   }
 }
 
 function updateAim(dt) {
-  if (!walk.active || !walk.isLocked()) {
+  if (!walk.active || !(walk.isLocked() || walk.isTouch())) {
     crosshair.classList.remove("is-target");
     crosshairHint.textContent = "";
     return;
@@ -486,16 +583,27 @@ function updateAim(dt) {
   if (aim?.type === "hmi" && aim.station) {
     crosshair.classList.add("is-target");
     crosshairHint.textContent = aim.station.isRobot
-      ? "E · programar robô"
-      : `E · programar ${aim.station.code}`;
+      ? walk.isTouch()
+        ? "Toque em Interagir"
+        : "E · programar robô"
+      : walk.isTouch()
+        ? `Interagir · ${aim.station.code}`
+        : `E · programar ${aim.station.code}`;
   } else if (aim?.type === "dev") {
     crosshair.classList.add("is-target");
-    crosshairHint.textContent = "E · abrir Dev Lab";
+    crosshairHint.textContent = walk.isTouch() ? "Interagir · abrir Dev Lab" : "E · abrir Dev Lab";
+  } else if (aim?.type === "chair" && aim.chair) {
+    crosshair.classList.add("is-target");
+    crosshairHint.textContent = walk.isTouch() ? "Interagir · empurrar" : "E · empurrar cadeira";
   } else if (aim?.type === "entry" && aim.entry) {
     crosshair.classList.add("is-target");
     crosshairHint.textContent = aim.entry.isRobot
-      ? "E · célula robótica"
-      : `E · ${aim.entry.code}`;
+      ? walk.isTouch()
+        ? "Interagir · célula robótica"
+        : "E · célula robótica"
+      : walk.isTouch()
+        ? `Interagir · ${aim.entry.code}`
+        : `E · ${aim.entry.code}`;
   } else {
     crosshair.classList.remove("is-target");
     crosshairHint.textContent = "";
@@ -640,7 +748,11 @@ let vrReady = false;
 function syncWalkButton() {
   walkBtn.classList.toggle("is-active", walk.active);
   walkBtnText.textContent = walk.active ? "Sair do passeio" : "Caminhar";
-  walkBtn.title = walk.active ? "Voltar à visão geral (Esc)" : "Andar pelo galpão com WASD";
+  walkBtn.title = walk.active
+    ? "Voltar à visão geral (Esc)"
+    : walk.isTouch()
+      ? "Andar pelo galpão com joystick"
+      : "Andar pelo galpão com WASD";
 }
 
 /* Resume walking from wherever the camera is, so leaving a panel keeps us on the spot. */
@@ -1192,6 +1304,7 @@ renderProgram();
 /* ------------------------------------------------------------------ */
 
 const clock = new THREE.Clock();
+const chairPlayerPosition = new THREE.Vector3();
 let simTime = 0;
 
 function updateLabels() {
@@ -1202,8 +1315,7 @@ function updateLabels() {
     return;
   }
 
-  const w = window.innerWidth;
-  const h = window.innerHeight;
+  const { width: w, height: h } = viewportSize();
   const candidates = [];
   for (const obj of labels) {
     const dist = camera.position.distanceTo(obj.position);
@@ -1281,6 +1393,13 @@ function animate() {
     if (!walk.active && !sit && !tween) controls.update();
   }
 
+  const physicsPlayer = vr.active
+    ? vr.getPlayerPosition(chairPlayerPosition)
+    : walk.active
+      ? camera.position
+      : null;
+  chairPhysics.update(dt, physicsPlayer);
+
   if (selectionMarker) {
     const t = performance.now() * 0.001;
     const pulse = Math.sin(t * 3.2);
@@ -1299,12 +1418,9 @@ controls.addEventListener("start", () => {
   if (tween && tween.t > 0.15) tween = null;
 });
 
-window.addEventListener("resize", () => {
-  camera.aspect = window.innerWidth / window.innerHeight;
-  camera.updateProjectionMatrix();
-  renderer.setSize(window.innerWidth, window.innerHeight);
-  labelRenderer.setSize(window.innerWidth, window.innerHeight);
-});
+window.addEventListener("resize", resizeScene);
+window.visualViewport?.addEventListener("resize", resizeScene);
+window.visualViewport?.addEventListener("scroll", resizeScene);
 
 document.addEventListener("visibilitychange", () => {
   if (!document.hidden) clock.getDelta();
@@ -1341,6 +1457,8 @@ if (import.meta.env.DEV) {
     walk,
     labelRenderer,
     robot,
+    chairs: props.chairs,
+    chairPhysics,
     openProgramPanel,
     closeProgramPanel,
     studio,
