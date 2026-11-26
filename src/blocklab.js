@@ -43,7 +43,7 @@ const BLOCKS = {
     hint: "esteira + sensores",
     dur: 3.4,
     tone: "blue",
-    tip: "A esteira transporta as peças retiradas do magazine lateral. O magazine contém três metálicas, três plásticas coloridas e três pretas; o estoque visível diminui a cada alimentação.",
+    tip: "As peças saem uma por vez da base do magazine, descem pelo alimentador lateral e entram na esteira. O magazine contém três metálicas, três plásticas coloridas e três pretas; o estoque visível diminui a cada alimentação.",
   },
   sortMetal: {
     label: "Separar metálica",

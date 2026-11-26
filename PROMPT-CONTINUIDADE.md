@@ -77,7 +77,7 @@ A função `buildAssembly`, em `src/stations.js`, foi amplamente refeita. O cód
 - Alimentador vertical e shuttle linear independentes.
 - Prensa vertical com guias.
 - Magazine transparente com cinco bases e magazine independente com cinco tampas.
-- Alimentador da base com dois cilindros pneumáticos e cabeçotes nos eixos X e Z.
+- Alimentador da base com dois cilindros pneumáticos e cabeçotes nos eixos X e Z. A haste longa do eixo X fica recolhida dentro do corpo em repouso e se expõe progressivamente durante a alimentação, evitando que atravesse visualmente a IHM.
 - Fixture com pinos de posicionamento.
 - Expulsor lateral com pá.
 - Bandeja de saída.
@@ -183,29 +183,87 @@ Validação responsiva:
 
 ### 8. Magazine lateral das esteiras
 
-O pedido “para a esteira quero que tenha uma magazine do lado dela com as peça que ela vai transportar” foi atendido em MPS-06 e MPS-10:
+O pedido “para a esteira quero que tenha uma magazine do lado dela com as peça que ela vai transportar” foi atendido em MPS-06 e MPS-10. O magazine quadriculado inicial foi substituído por três tubos transparentes verticais, seguindo o modelo visual do magazine da estação de distribuição.
 
-- `buildConveyorStation`, em `src/stations.js`, recebeu um magazine lateral com nove peças no total: três metálicas, três plásticas coloridas e três pretas.
-- O magazine tem base elevada com quatro pés, paredes de alumínio, painel transparente, divisórias, faixas coloridas por material, placa “MAGAZINE / 9 PEÇAS” e uma guia inclinada em direção à esteira.
-- As peças usam `createSortPuck()` e estão apoiadas sobre as faixas, com folga de aproximadamente `0,25 mm`; a parte superior fica aproximadamente `2 mm` abaixo das divisórias.
-- O magazine foi afastado da estrutura da esteira e do sensor indutivo, com folgas medidas de `7,5 mm` e `10 mm`, respectivamente.
-- Cada alimentação consome uma peça visível do magazine. O reset restaura as oito peças no magazine e coloca a nona peça metálica na entrada da esteira.
-- Quando as nove peças do lote foram separadas, o magazine ficou vazio e o programa retornou `LOTE CONCLUÍDO`.
-- Nomes estáveis: `MPS-06-conveyor-magazine`, `MPS-10-conveyor-magazine` e `MPS-06-magazine-metal-1` / `MPS-10-magazine-black-3`, entre outros.
-- `INFO.conveyor` e a dica do bloco `belt` em `src/blocklab.js` foram atualizadas para explicar o estoque visível e seu consumo.
+O pedido posterior “agora faz as peças saírem uma por vez da magazine e irem para a esteira” refinou o funcionamento em `buildConveyorStation`, em `src/stations.js`:
 
-Validação dos magazines:
+- Os três tubos foram alinhados no eixo Z, com três peças por material: uma metálica, uma plástica colorida e uma preta em cada tubo.
+- Cada tubo possui abertura lateral em +X para a retirada pela base; a primeira peça visível é sempre a peça inferior.
+- A retirada esconde a peça da base e anima a descida das peças superiores em `29 mm`, com duração de `0,14 s`.
+- Há uma calha individual por tubo, evitando que uma peça atravesse o magazine vizinho.
+- Um alimentador lateral conduz a peça até a entrada da esteira, na mesma altura da correia principal.
+- A trilha lateral esquerda da esteira foi aberta na entrada e uma ponte de transferência liga o alimentador à correia.
+- O controlador permite somente uma transferência por vez. A peça percorre uma curva Catmull-Rom e reutiliza a mesma malha do pool ao chegar à esteira.
+- O contador de peças alimentadas somente aumenta quando a transferência termina; não há consumo antecipado do lote.
+- O reset interrompe a transferência, limpa as descidas pendentes, restaura as oito peças no magazine e coloca a nona peça metálica na entrada da esteira.
+- Nomes estáveis: `MPS-06-conveyor-magazine`, `MPS-10-conveyor-magazine`, `MPS-06-conveyor-infeed`, `MPS-10-conveyor-infeed` e `MPS-06-magazine-metal-1` / `MPS-10-magazine-black-3`, entre outros.
+- `INFO.conveyor` e a dica do bloco `belt` em `src/blocklab.js` explicam a retirada sequencial, a descida das pilhas e o alimentador lateral.
+
+Validação dos magazines e da transferência:
 
 - MPS-06 e MPS-10 começaram com oito peças no magazine e uma na esteira, totalizando nove.
-- O ciclo completo de triagem consumiu todo o estoque, separou nove peças e terminou com `LOTE CONCLUÍDO`.
-- O reset devolveu o magazine para oito peças e reposicionou uma peça metálica na esteira.
-- Capturas headless confirmaram os três tipos de peça, o apoio, as divisórias e a posição lateral do magazine nas duas células.
-- Não há erros de console da aplicação.
+- Durante todos os ciclos testados, o número máximo de peças fora do magazine e ainda em transferência foi `1`.
+- Após a retirada da base colorida, as duas peças superiores desceram de `0,056/0,085 m` para `0,027/0,056 m`.
+- O reset no meio de uma transferência devolveu o magazine para oito peças, deixou uma peça na esteira e removeu qualquer peça em trânsito.
+- A folga mínima medida da peça em relação aos tubos adjacentes foi `20,99 mm`.
+- A folga mínima medida até o posto do sensor indutivo foi `27,74 mm`.
+- A peça ficou alinhada à altura da lateral da esteira, sem penetração na estrutura.
+- O ciclo completo consumiu as nove peças, separou todas nas rampas e terminou com `LOTE CONCLUÍDO`.
+- O reset final restaurou oito peças no magazine, uma na esteira, zero nas rampas e nenhuma transferência ativa.
+- Capturas headless confirmaram as aberturas dos tubos, as calhas, o alimentador, a ponte e a entrada nas duas células.
+- Não há erros de console da aplicação; restam somente os avisos preexistentes do `RoomEnvironment`.
+
+Correção do retorno da esteira:
+
+- O salto instantâneo de `z = -0,42 m` para `z = 0,40 m` foi substituído por um percurso contínuo sob a correia.
+- O retorno usa duas curvas Bézier cúbicas e uma linha, descendo até `y = 0,037 m` e voltando à altura da correia sem descontinuidade de posição.
+- Uma faixa de borracha sob a correia serve de apoio ao retorno.
+- Sensores e seleção das rampas ignoram a peça enquanto ela percorre o retorno inferior.
+- MPS-06 e MPS-10 completaram dois retornos sem saltos; o maior deslocamento medido por atualização foi `0,646 mm` para um avanço de correia de `0,625 mm`.
+- A triagem completa continuou terminando com nove peças nas rampas, zero na esteira e `LOTE CONCLUÍDO`.
+- O reset durante o retorno inferior restaurou oito peças no magazine e uma na entrada da esteira.
+
+Ajuste físico das peças nas rampas:
+
+- As três rampas foram rebaixadas para iniciar na altura da correia em `x = 0,12 m`.
+- A peça acompanha a superfície inclinada durante a saída do cilindro, sem penetrar na rampa.
+- O empilhamento nas rampas passou a usar passo de `29 mm`, deixando `1 mm` de folga sobre a altura total de `28 mm` da peça.
+- A faixa colorida e as guias laterais foram reposicionadas junto à superfície da rampa.
+- A folga mínima medida entre a peça e a rampa foi zero, sem penetração; a folga entre peças empilhadas foi `1 mm`.
+- A distância mínima entre peças na esteira foi `107,22 mm`, superior ao diâmetro de `64 mm`.
+- MPS-06 e MPS-10 concluíram o lote com nove peças nas rampas e `LOTE CONCLUÍDO`.
+
+### 9. Upgrade visual das MPS-01 e MPS-07
+
+Os pedidos “melhora está maquina também por favor” e “de um upgrad” foram atendidos nas duas estações de distribuição:
+
+- `buildDistribution` recebeu um conjunto detalhado condicionado aos códigos `MPS-07` e `MPS-01`, nomeado `${code}-distribution-details`.
+- O magazine tubular ganhou base parafusada, faixa de perigo, quatro tirantes cromados, porcas e fixações superiores.
+- O tubo transparente ganhou uma abertura lateral em `-X`, alinhada com o cilindro de ejeção, para a peça sair sem atravessar o acrílico.
+- Uma ponte de transferência com placas laterais e borracha liga a saída do magazine à calha de roletes.
+- O cilindro de ejeção ganhou berços, suportes parafusados e haste compacta, recolhida em repouso.
+- A calha acumuladora ganhou roletes escuros, guias de borracha, batente final, bases e sapatas aparafusadas.
+- O conjunto pneumático ganhou placa de montagem e FRL com filtro, regulador, lubrificador e copo transparente.
+- Um sensor de nível baixo acende em âmbar quando restam duas peças ou menos no magazine.
+- As mangueiras azuis passaram a seguir curvas organizadas, e o cabo preto foi movido para calhas nas bordas da estação, eliminando o longo diagonal aparente da imagem anterior.
+- A lógica de ejeção foi ajustada para a fila abrir espaço antes de a peça nova alcançar a calha: `queueAdvance = easeInOut(clamp01(push / 0.58))`.
+- A peça ejetada sobe os `2 mm` necessários durante a transferência para apoiar sobre os roletes, sem degrau na entrada da calha.
+- A acumulação, os sensores e a parada por magazine vazio foram preservados.
+
+Validação das MPS-01 e MPS-07:
+
+- A MPS-01 e a MPS-07 concluíram oito comandos de ejeção, com oito peças na calha e zero no magazine.
+- O nono comando das duas máquinas retornou `MAGAZINE VAZIO`.
+- O reset das duas máquinas restaurou oito peças no magazine e zero na calha.
+- A distância horizontal mínima entre a peça ejetada e a primeira peça da fila foi `80 mm` em todos os ciclos, superior ao diâmetro de `72 mm`.
+- As duas estações possuem o conjunto detalhado e o sensor de nível baixo.
+- Capturas headless confirmaram a abertura lateral, a ponte de transferência, os roletes, o FRL, o sensor, o cabeamento organizado e a folga entre as peças nas duas máquinas.
+- Não há erros de console da aplicação; restam somente os avisos preexistentes do `RoomEnvironment`.
 
 ## Estado atual
 
 - `npm run build` foi executado com sucesso após a validação final.
-- Bundle final: `dist/assets/index-DbXwBibu.js`.
+- Bundle final: `dist/assets/index-DEGLn_aU.js`.
 - O Vite mantém apenas o aviso não fatal de chunk maior que 500 kB.
 - Não foi criado nenhum commit novo nesta sessão.
 - O servidor de desenvolvimento foi reiniciado e está disponível em `http://127.0.0.1:5173`.
@@ -219,7 +277,7 @@ Validação dos magazines:
 - O magazine de bases tem painel transparente traseiro e laterais abertas para permitir a passagem da peça nos eixos X e Z.
 - Os objetos das pilhas foram nomeados `assembly-magazine-base-N` e `assembly-magazine-cap-N` para facilitar depuração.
 - As sete cadeiras possuem física, hitbox própria, colisão, atrito, giro dos rodízios e interação por clique, mira ou contato com o jogador.
-- MPS-06 e MPS-10 possuem magazines laterais de nove peças, com consumo visível por alimentação e reposição no reset.
+- MPS-06 e MPS-10 possuem magazines laterais de nove peças, com retirada sequencial pela base, descida animada das pilhas, calhas individuais e alimentador lateral até a esteira.
 
 ## Validação concluída
 

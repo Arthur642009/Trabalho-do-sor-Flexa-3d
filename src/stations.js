@@ -18,7 +18,7 @@ export const STATION_MODULE = 1.08;
 /* shared pieces                                                       */
 /* ------------------------------------------------------------------ */
 
-function pneumaticCylinder(mats, { len = 0.14, r = 0.026, stroke = 0.06 } = {}) {
+function pneumaticCylinder(mats, { len = 0.14, r = 0.026, stroke = 0.06, compactRod = false } = {}) {
   const g = new THREE.Group();
   const body = cyl(r, r, len, mats.alu, 18, 0, len / 2, 0);
   const capA = cyl(r * 1.06, r * 1.06, 0.01, mats.graphite, 18, 0, 0.005, 0);
@@ -26,9 +26,18 @@ function pneumaticCylinder(mats, { len = 0.14, r = 0.026, stroke = 0.06 } = {}) 
 
   const moving = new THREE.Group();
   const rodLen = stroke + 0.04;
-  const rod = cyl(r * 0.33, r * 0.33, rodLen, mats.chrome, 12, 0, len - rodLen / 2 + 0.01, 0);
+  const rod = compactRod
+    ? cyl(r * 0.33, r * 0.33, 1, mats.chrome, 12, 0, 0, 0)
+    : cyl(r * 0.33, r * 0.33, rodLen, mats.chrome, 12, 0, len - rodLen / 2 + 0.01, 0);
   const pad = cyl(r * 0.92, r * 0.92, 0.011, mats.aluDark, 16, 0, len + 0.006, 0);
-  moving.add(rod, pad);
+  if (compactRod) {
+    rod.scale.y = 0.012;
+    rod.position.y = len;
+    g.add(rod);
+  } else {
+    moving.add(rod);
+  }
+  moving.add(pad);
 
   g.add(body, capA, capB, moving);
 
@@ -45,6 +54,11 @@ function pneumaticCylinder(mats, { len = 0.14, r = 0.026, stroke = 0.06 } = {}) 
   g.setExtension = (v) => {
     const ext = clamp01(v);
     moving.position.y = ext * stroke;
+    if (compactRod) {
+      const exposed = 0.012 + ext * stroke;
+      rod.scale.y = exposed;
+      rod.position.y = len - 0.006 + exposed / 2;
+    }
   };
   return g;
 }
@@ -117,6 +131,20 @@ function buildDistribution(mats, renderer, code) {
   const BASE_Y = B + 0.043;
   const TRAVEL = 0.11;
   const COUNT = 8;
+  const detailed = code === "MPS-07" || code === "MPS-01";
+  const details = new THREE.Group();
+  details.name = `${code}-distribution-details`;
+  if (detailed) g.add(details);
+  const routedTube = (points, radius, mat) => {
+    const curve = new THREE.CatmullRomCurve3(
+      points.map((point) => new THREE.Vector3(...point)),
+      false,
+      "centripetal"
+    );
+    const mesh = new THREE.Mesh(new THREE.TubeGeometry(curve, 32, radius, 8, false), mat);
+    mesh.castShadow = false;
+    return mesh;
+  };
 
   // transparent stack tube, open just above the ejector pocket
   const magazine = new THREE.Group();
@@ -134,7 +162,7 @@ function buildDistribution(mats, renderer, code) {
   const tubeBottom = BASE_Y + PUCK_H / 2 + 0.003;
   const tubeH = 0.237;
   const tube = new THREE.Mesh(
-    new THREE.CylinderGeometry(0.052, 0.052, tubeH, 24, 1, true),
+    new THREE.CylinderGeometry(0.052, 0.052, tubeH, 24, 1, true, Math.PI * 1.5 + 0.75, Math.PI * 2 - 1.5),
     acrylic
   );
   tube.position.set(mx, tubeBottom + tubeH / 2, 0);
@@ -150,13 +178,52 @@ function buildDistribution(mats, renderer, code) {
   }
   g.add(magazine);
 
+  if (detailed) {
+    details.add(box(0.17, 0.012, 0.17, mats.aluDark, mx, B + 0.006, 0));
+    details.add(box(0.09, 0.004, 0.008, mats.hazard, mx, B + 0.015, 0.087));
+    const tieH = tubeH + 0.04;
+    for (let i = 0; i < 4; i++) {
+      const a = Math.PI / 4 + (i * Math.PI) / 2;
+      const x = mx + Math.cos(a) * 0.062;
+      const z = Math.sin(a) * 0.062;
+      details.add(cyl(0.0025, 0.0025, tieH, mats.chrome, 8, x, B + 0.026 + tieH / 2, z));
+      details.add(cyl(0.005, 0.005, 0.006, mats.aluDark, 6, x, B + 0.026, z));
+      details.add(cyl(0.005, 0.005, 0.006, mats.aluDark, 6, x, B + 0.026 + tieH, z));
+    }
+    for (const sx of [-1, 1]) {
+      for (const sz of [-1, 1]) {
+        details.add(cyl(0.004, 0.004, 0.005, mats.chrome, 6, mx + sx * 0.07, B + 0.014, sz * 0.07));
+      }
+    }
+  }
+
   // ejector: pad touches the bottom puck and pushes it onto the outfeed ramp
-  const ejector = pneumaticCylinder(mats, { len: 0.14, r: 0.02, stroke: TRAVEL });
+  const ejector = pneumaticCylinder(mats, { len: 0.14, r: 0.02, stroke: TRAVEL, compactRod: detailed });
   ejector.rotation.z = Math.PI / 2;
   ejector.position.set(0.1275, BASE_Y, 0);
   g.add(ejector);
   g.add(box(0.06, 0.023, 0.05, mats.alu, 0.1, B + 0.0115, 0));
   g.add(cyl(0.024, 0.024, 0.024, mats.aluDark, 18, 0.075, BASE_Y, 0, { rotZ: Math.PI / 2 }));
+  if (detailed) {
+    details.add(box(0.25, 0.012, 0.15, mats.aluDark, 0.015, B + 0.006, 0));
+    details.add(cyl(0.014, 0.014, 0.014, mats.graphite, 16, -0.013, BASE_Y, 0, { rotZ: Math.PI / 2 }));
+    for (const x of [0.035, 0.115]) {
+      details.add(box(0.026, 0.026, 0.075, mats.alu, x, BASE_Y - 0.025, 0));
+      for (const sz of [-1, 1]) {
+        details.add(cyl(0.0035, 0.0035, 0.006, mats.chrome, 6, x, BASE_Y - 0.01, sz * 0.027));
+      }
+    }
+  }
+
+  if (detailed) {
+    details.add(box(0.065, 0.004, 0.09, mats.alu, -0.13, B + 0.028, 0));
+    details.add(box(0.06, 0.002, 0.072, mats.rubber, -0.13, B + 0.031, 0));
+    for (const sz of [-1, 1]) {
+      details.add(box(0.055, 0.035, 0.008, mats.aluDark, -0.13, B + 0.0475, sz * 0.045));
+      details.add(box(0.05, 0.022, 0.003, mats.rubber, -0.13, B + 0.0475, sz * 0.0405));
+      details.add(cyl(0.0035, 0.0035, 0.005, mats.chrome, 6, -0.105, B + 0.034, sz * 0.045));
+    }
+  }
 
   // outfeed ramp: accumulates all 8 pieces in a single queue along +z
   const CHUTE_X = -0.17;
@@ -177,11 +244,28 @@ function buildDistribution(mats, renderer, code) {
       box(0.006, 0.02, CHUTE_LEN, mats.alu, sx * (CHUTE_W / 2 + 0.003), 0.004, CHUTE_ZC)
     );
   }
+  if (detailed) {
+    for (let z = CHUTE_Z0 + 0.045; z < CHUTE_Z0 + CHUTE_LEN - 0.03; z += 0.067) {
+      chute.add(cyl(0.006, 0.006, CHUTE_W - 0.008, mats.aluDark, 12, 0, -0.004, z, { rotZ: Math.PI / 2 }));
+    }
+    for (const sx of [-1, 1]) {
+      chute.add(box(0.003, 0.008, CHUTE_LEN - 0.02, mats.rubber, sx * (CHUTE_W / 2 - 0.001), 0.006, CHUTE_ZC));
+    }
+  }
   chute.add(box(CHUTE_W + 0.018, 0.032, 0.012, mats.aluDark, 0, 0.01, CHUTE_Z0 + CHUTE_LEN));
+  if (detailed) {
+    chute.add(box(CHUTE_W - 0.012, 0.018, 0.005, mats.rubber, 0, 0.009, CHUTE_Z0 + CHUTE_LEN - 0.01));
+  }
   g.add(chute);
   for (const z of [0.02, 0.35]) {
     const h = CHUTE_TOP0 - 0.012 - z * Math.sin(CHUTE_TILT) - B;
     g.add(box(0.05, h, 0.05, mats.aluDark, CHUTE_X, B + h / 2, z));
+    if (detailed) {
+      details.add(box(0.085, 0.008, 0.075, mats.aluDark, CHUTE_X, B + 0.004, z));
+      for (const sx of [-1, 1]) {
+        details.add(cyl(0.0035, 0.0035, 0.005, mats.chrome, 6, CHUTE_X + sx * 0.03, B + 0.01, z));
+      }
+    }
   }
 
   // inductive sensor at the ejector exit + reflective sensor at the end of the ramp
@@ -229,16 +313,68 @@ function buildDistribution(mats, renderer, code) {
     beamMatB,
     mats.ledAmber
   );
+  let lowLevelSensor = null;
+  if (detailed) {
+    const head = new THREE.Group();
+    head.add(box(0.026, 0.038, 0.026, mats.graphite, 0, 0, 0));
+    head.add(cyl(0.008, 0.008, 0.004, mats.bluePlastic, 12, -0.015, 0, 0, { rotZ: Math.PI / 2 }));
+    const led = cyl(0.004, 0.004, 0.006, mats.ledOff, 8, 0, 0.022, 0);
+    head.add(led);
+    head.position.set(mx + 0.076, BASE_Y + 0.052, 0.018);
+    details.add(head);
+    details.add(box(0.012, 0.07, 0.012, mats.aluDark, mx + 0.076, B + 0.035, 0.018));
+    lowLevelSensor = { led };
+  }
 
   // pneumatics
   const valve = valveBlock(mats);
   valve.position.set(0.3, B, 0.18);
   g.add(valve);
-  g.add(hose([0.3, B + 0.09, 0.16], [0.088, B + 0.062, 0.004], 0.0042, mats.blueTube, 0.04));
-  g.add(hose([0.3, B + 0.09, 0.2], [0.01, B + 0.062, -0.004], 0.0042, mats.blueTube, 0.05, -0.02));
-  g.add(hose([0.3, B + 0.05, 0.2], [0.3, B + 0.05, 0.26], 0.0055, mats.blackCable, 0.02));
-  g.add(hose([0.3, B + 0.1, 0.22], [-0.255, B + 0.095, 0.56], 0.0035, mats.blackCable, 0.05, 0));
-  g.add(hose([-0.255, B + 0.085, 0.55], [-0.255, B + 0.085, -0.015], 0.003, mats.blackCable, 0.02));
+  if (detailed) {
+    details.add(box(0.22, 0.012, 0.28, mats.aluDark, 0.3, B + 0.006, 0.15));
+    const frl = new THREE.Group();
+    frl.position.set(0.3, B + 0.012, 0.055);
+    frl.add(box(0.09, 0.018, 0.07, mats.aluDark, 0, 0.009, 0));
+    frl.add(cyl(0.018, 0.018, 0.07, mats.offWhite, 16, 0, 0.053, 0));
+    frl.add(cyl(0.015, 0.015, 0.04, mats.glassClear, 16, 0, 0.025, 0));
+    frl.add(cyl(0.02, 0.02, 0.008, mats.bluePlastic, 16, 0, 0.09, 0));
+    frl.add(cyl(0.014, 0.014, 0.03, mats.graphite, 16, 0, 0.107, 0));
+    details.add(frl);
+    details.add(routedTube([
+      [0.3, B + 0.09, 0.16],
+      [0.36, B + 0.105, 0.1],
+      [0.34, B + 0.105, -0.025],
+      [0.2, B + 0.09, -0.055],
+      [0.088, B + 0.062, 0.004],
+    ], 0.0042, mats.blueTube));
+    details.add(routedTube([
+      [0.3, B + 0.09, 0.2],
+      [0.385, B + 0.11, 0.13],
+      [0.365, B + 0.105, -0.04],
+      [0.17, B + 0.09, -0.072],
+      [0.01, B + 0.062, -0.004],
+    ], 0.0042, mats.blueTube));
+    details.add(box(0.03, 0.012, 0.43, mats.graphite, 0.34, B + 0.02, 0.325));
+    details.add(box(0.62, 0.012, 0.03, mats.graphite, 0.035, B + 0.02, 0.54));
+    details.add(box(0.025, 0.01, 0.57, mats.graphite, -0.275, B + 0.02, 0.27));
+    details.add(routedTube([
+      [0.3, B + 0.05, 0.2],
+      [0.34, B + 0.035, 0.2],
+      [0.34, B + 0.035, 0.54],
+      [-0.275, B + 0.035, 0.54],
+      [-0.275, B + 0.035, -0.015],
+      [-0.255, B + 0.085, -0.015],
+    ], 0.0035, mats.blackCable));
+    for (const [x, z] of [[0.34, 0.1], [0.34, 0.42], [-0.275, 0.18], [-0.275, 0.45]]) {
+      details.add(box(0.026, 0.012, 0.022, mats.aluDark, x, B + 0.03, z));
+    }
+  } else {
+    g.add(hose([0.3, B + 0.09, 0.16], [0.088, B + 0.062, 0.004], 0.0042, mats.blueTube, 0.04));
+    g.add(hose([0.3, B + 0.09, 0.2], [0.01, B + 0.062, -0.004], 0.0042, mats.blueTube, 0.05, -0.02));
+    g.add(hose([0.3, B + 0.05, 0.2], [0.3, B + 0.05, 0.26], 0.0055, mats.blackCable, 0.02));
+    g.add(hose([0.3, B + 0.1, 0.22], [-0.255, B + 0.095, 0.56], 0.0035, mats.blackCable, 0.05, 0));
+    g.add(hose([-0.255, B + 0.085, 0.55], [-0.255, B + 0.085, -0.015], 0.003, mats.blackCable, 0.02));
+  }
 
   const light = stackLight(mats);
   light.group.position.set(0.32, B, -0.2);
@@ -254,7 +390,7 @@ function buildDistribution(mats, renderer, code) {
     hmiRef = h;
   };
 
-  const landingY = (z) => BASE_Y - z * Math.sin(CHUTE_TILT);
+  const landingY = (z) => BASE_Y + (detailed ? 0.002 : 0) - z * Math.sin(CHUTE_TILT);
 
   function refreshSensors() {
     const atExit = pucks.some((p) => p.position.x < -0.095 && Math.abs(p.position.z) < 0.05);
@@ -267,6 +403,7 @@ function buildDistribution(mats, renderer, code) {
     sensorOut.beam.visible = atExit;
     sensorEnd.led.material = atEnd ? sensorEnd.onMat : mats.ledOff;
     sensorEnd.beam.visible = atEnd;
+    if (lowLevelSensor) lowLevelSensor.led.material = mag.length <= 2 ? mats.ledAmber : mats.ledOff;
   }
 
   const ctl = {
@@ -281,18 +418,23 @@ function buildDistribution(mats, renderer, code) {
       }
       if (p < 0.08) stepAnnounced = false;
       const push = easeInOut(clamp01(p / 0.3));
+      const queueAdvance = easeInOut(clamp01(push / 0.58));
       const drop = easeInOut(clamp01((p - 0.42) / 0.32));
       const retract = easeInOut(clamp01((p - 0.62) / 0.34));
       ejector.setExtension(push * (1 - retract));
       mag.forEach((pk, i) => {
         if (i === 0) {
-          pk.position.set(mx - push * TRAVEL, BASE_Y, 0);
+          pk.position.set(
+            mx - push * TRAVEL,
+            BASE_Y + (detailed ? push * 0.002 : 0),
+            0
+          );
         } else {
           pk.position.set(mx, BASE_Y + (i - drop) * STACK_PITCH, 0);
         }
       });
       queued.forEach((q) => {
-        const z = q.baseZ + push * PITCH;
+        const z = q.baseZ + queueAdvance * PITCH;
         q.mesh.position.set(CHUTE_X, landingY(z), z);
       });
       refreshSensors();
@@ -308,7 +450,7 @@ function buildDistribution(mats, renderer, code) {
         q.mesh.position.set(CHUTE_X, landingY(q.baseZ), q.baseZ);
       });
       const out = mag.shift();
-      out.position.set(CHUTE_X, BASE_Y, 0);
+      out.position.set(CHUTE_X, landingY(0), 0);
       queued.unshift({ mesh: out, baseZ: 0 });
       refreshSensors();
       const full = queued.length >= COUNT;
@@ -757,7 +899,7 @@ function buildAssembly(mats, renderer, code) {
   g.add(rb(0.125, 0.01, 0.125, 0.003, mats.aluDark, baseMagX, B + 0.275, baseMagZ));
   g.add(box(0.055, 0.008, 0.004, mats.hazard, baseMagX, B + 0.282, baseMagZ + 0.064));
 
-  const baseFeedX = pneumaticCylinder(mats, { len: 0.1, r: 0.018, stroke: 0.27 });
+  const baseFeedX = pneumaticCylinder(mats, { len: 0.1, r: 0.018, stroke: 0.27, compactRod: true });
   baseFeedX.rotation.z = -Math.PI / 2;
   baseFeedX.position.set(baseMagX - 0.11, B + 0.06, baseMagZ);
   g.add(baseFeedX);
@@ -1143,13 +1285,26 @@ function buildConveyorStation(mats, renderer, code) {
 
   const length = 0.84;
   const width = 0.27;
+  const ENTRY_Z = 0.4;
   const conveyor = new THREE.Group();
   conveyor.position.set(0, B, 0);
 
   conveyor.add(box(width + 0.06, 0.024, length, mats.graphite, 0, 0.012, 0));
   for (const sx of [-1, 1]) {
     conveyor.add(box(0.035, 0.03, length, mats.alu, (sx * (width + 0.055)) / 2, 0.045, 0));
-    conveyor.add(box(0.01, 0.05, length, mats.aluDark, (sx * (width + 0.02)) / 2, 0.075, 0));
+    const railStart = -length / 2;
+    const railEnd = sx === -1 ? ENTRY_Z - 0.07 : length / 2;
+    conveyor.add(
+      box(
+        0.01,
+        0.05,
+        railEnd - railStart,
+        mats.aluDark,
+        (sx * (width + 0.02)) / 2,
+        0.075,
+        (railStart + railEnd) / 2
+      )
+    );
   }
 
   const tex = mats.textures.belt.clone();
@@ -1167,6 +1322,7 @@ function buildConveyorStation(mats, renderer, code) {
   belt.position.y = 0.06;
   belt.receiveShadow = true;
   conveyor.add(belt);
+  conveyor.add(box(width - 0.02, 0.002, length - 0.08, mats.rubber, 0, 0.025, 0));
 
   for (const z of [-length / 2, length / 2]) {
     conveyor.add(
@@ -1176,22 +1332,59 @@ function buildConveyorStation(mats, renderer, code) {
   g.add(conveyor);
 
   const SENSOR_Z = 0.32;
-  const ENTRY_Z = 0.4;
   const SENSOR_HALF = 0.05;
   const FEED_GAP = 0.14;
   const MAX_PIECES = 5;
   const BIN_CAP = 3;
   const LOT_SIZE = 3 * BIN_CAP; // one full set of ramps: 3 pieces per type
-  const MAG_X = -0.31;
+  const MAG_X = -0.32;
   const MAG_Z = 0.15;
-  const MAG_PIECE_Y = 0.025;
-  const MAG_PITCH = 0.075;
+  const MAG_PIECE_Y = 0.027;
+  const MAG_PITCH = 0.095;
+  const MAG_STACK_PITCH = 0.029;
   const MAG_COLS = BIN_CAP;
+  const FEED_X = -0.2225;
+  const FEED_Z0 = 0.015;
+  const FEED_Y = B + 0.06;
   const BELT_MIN = -length / 2;
-  const BELT_LOOP = ENTRY_Z - BELT_MIN;
   const PIECE_Y = 0.071;
+  const RETURN_Y = 0.037;
+  const returnCurve = new THREE.CurvePath();
+  returnCurve.add(new THREE.CubicBezierCurve3(
+    new THREE.Vector3(0, PIECE_Y, BELT_MIN),
+    new THREE.Vector3(0, PIECE_Y, BELT_MIN - 0.09),
+    new THREE.Vector3(0, RETURN_Y, BELT_MIN - 0.09),
+    new THREE.Vector3(0, RETURN_Y, BELT_MIN)
+  ));
+  returnCurve.add(new THREE.LineCurve3(
+    new THREE.Vector3(0, RETURN_Y, BELT_MIN),
+    new THREE.Vector3(0, RETURN_Y, ENTRY_Z)
+  ));
+  returnCurve.add(new THREE.CubicBezierCurve3(
+    new THREE.Vector3(0, RETURN_Y, ENTRY_Z),
+    new THREE.Vector3(0, RETURN_Y, ENTRY_Z + 0.09),
+    new THREE.Vector3(0, PIECE_Y, ENTRY_Z + 0.09),
+    new THREE.Vector3(0, PIECE_Y, ENTRY_Z)
+  ));
+  const returnLength = returnCurve.getLength();
+  const SORT_PIECE_H = 0.022;
+  const SORT_PIECE_PITCH = 0.029;
   const BIN_X = 0.32;
-  const BIN_Y = 0.05;
+  const RAMP_X = 0.245;
+  const RAMP_LEN = 0.22;
+  const RAMP_THICK = 0.006;
+  const RAMP_ANGLE = -0.18;
+  const RAMP_ENTRY_X = 0.12;
+  const RAMP_Y =
+    B + 0.06 -
+    Math.tan(RAMP_ANGLE) * (RAMP_ENTRY_X - RAMP_X) -
+    RAMP_THICK / (2 * Math.cos(RAMP_ANGLE));
+  const rampSupportY = (x) =>
+    RAMP_Y +
+    Math.tan(RAMP_ANGLE) * (x - RAMP_X) +
+    RAMP_THICK / (2 * Math.cos(RAMP_ANGLE)) -
+    B;
+  const BIN_Y = rampSupportY(BIN_X) + SORT_PIECE_H / 2;
 
   const TYPES = ["metal", "colored", "black"];
   const TYPE_LABEL = { metal: "METÁLICA", colored: "PLÁSTICA COLORIDA", black: "PLÁSTICA PRETA" };
@@ -1201,31 +1394,50 @@ function buildConveyorStation(mats, renderer, code) {
     colored: { z: -0.04, color: mats.orangePlastic, label: "COLORIDAS", sub: "RAMPA 2" },
     black: { z: -0.2, color: mats.blackPlastic, label: "PRETAS", sub: "RAMPA 3" },
   };
-  const RAMP_ANGLE = -0.18;
 
   const magazine = new THREE.Group();
   magazine.name = `${code}-conveyor-magazine`;
   magazine.position.set(MAG_X, B + 0.036, MAG_Z);
   for (const sx of [-1, 1]) {
     for (const sz of [-1, 1]) {
-      magazine.add(box(0.024, 0.036, 0.024, mats.aluDark, sx * 0.098, -0.018, sz * 0.118));
+      magazine.add(box(0.024, 0.036, 0.024, mats.aluDark, sx * 0.04, -0.018, sz * 0.118));
     }
   }
-  magazine.add(box(0.245, 0.012, 0.29, mats.aluDark, 0, 0.006, 0));
-  magazine.add(box(0.008, 0.12, 0.29, mats.alu, 0.116, 0.062, 0));
-  magazine.add(box(0.245, 0.12, 0.008, mats.alu, 0, 0.062, 0.141));
-  magazine.add(box(0.245, 0.12, 0.008, mats.alu, 0, 0.062, -0.141));
-  magazine.add(box(0.006, 0.012, 0.265, mats.alu, 0.0375, 0.05, 0));
-  magazine.add(box(0.006, 0.012, 0.265, mats.alu, -0.0375, 0.05, 0));
-  magazine.add(box(0.145, 0.012, 0.006, mats.alu, 0, 0.05, 0.0375));
-  magazine.add(box(0.145, 0.012, 0.006, mats.alu, 0, 0.05, -0.0375));
-  magazine.add(box(0.222, 0.09, 0.004, mats.glassClear, -0.008, 0.056, 0.142));
-  magazine.add(box(0.004, 0.09, 0.26, mats.glassClear, -0.119, 0.056, 0));
+  magazine.add(box(0.11, 0.012, 0.29, mats.aluDark, 0, 0.006, 0));
 
+  const acrylic = new THREE.MeshPhysicalMaterial({
+    color: 0xd7e6ea,
+    metalness: 0,
+    roughness: 0.08,
+    transparent: true,
+    opacity: 0.3,
+    envMapIntensity: 1.4,
+    side: THREE.DoubleSide,
+    depthWrite: false,
+  });
+  const tubeBottom = MAG_PIECE_Y - 0.008;
+  const tubeH = 0.086;
   for (const [row, type] of TYPES.entries()) {
-    magazine.add(
-      box(0.222, 0.0015, 0.015, RAMP[type].color, -0.008, 0.013, (row - 1) * MAG_PITCH)
+    const z = (row - 1) * MAG_PITCH;
+    magazine.add(cyl(0.046, 0.046, 0.012, mats.graphite, 24, 0, 0.01, z));
+    magazine.add(cyl(0.045, 0.045, 0.003, RAMP[type].color, 24, 0, 0.014, z));
+    const tube = new THREE.Mesh(
+      new THREE.CylinderGeometry(
+        0.042,
+        0.042,
+        tubeH,
+        24,
+        1,
+        true,
+        Math.PI / 2 + 0.32,
+        Math.PI * 2 - 0.64
+      ),
+      acrylic
     );
+    tube.name = `${code}-magazine-tube-${type}`;
+    tube.position.set(0, tubeBottom + tubeH / 2, z);
+    magazine.add(tube);
+    magazine.add(cyl(0.046, 0.046, 0.012, mats.graphite, 24, 0, 0.11, z));
   }
 
   const magazinePieces = TYPES.map((type, row) =>
@@ -1233,31 +1445,59 @@ function buildConveyorStation(mats, renderer, code) {
       const piece = createSortPuck(mats, 0.032, 0.022);
       piece.name = `${code}-magazine-${type}-${col + 1}`;
       piece.userData.setType(type);
-      piece.position.set((col - 1) * MAG_PITCH, MAG_PIECE_Y, (row - 1) * MAG_PITCH);
+      piece.position.set(0, MAG_PIECE_Y + col * MAG_STACK_PITCH, (row - 1) * MAG_PITCH);
       magazine.add(piece);
       return piece;
     })
   );
 
-  g.add(
-    box(
-      0.15,
-      0.008,
-      0.018,
-      mats.alu,
-      -0.116,
-      B + 0.05,
-      MAG_Z,
-      { rotZ: 0.08 }
-    )
-  );
+  const chuteAngle = Math.atan2(0.004, 0.085);
+  for (const row of TYPES.keys()) {
+    g.add(
+      box(
+        0.11,
+        0.004,
+        0.072,
+        mats.alu,
+        MAG_X + 0.04,
+        B + 0.05,
+        MAG_Z + (row - 1) * MAG_PITCH,
+        { rotZ: chuteAngle }
+      )
+    );
+  }
+
+  const infeedLength = ENTRY_Z - FEED_Z0;
+  const infeed = new THREE.Group();
+  infeed.name = `${code}-conveyor-infeed`;
+  infeed.add(box(0.08, 0.018, infeedLength, mats.aluDark, FEED_X, FEED_Y - 0.009, (FEED_Z0 + ENTRY_Z) / 2));
+  const feederBelt = new THREE.Mesh(new THREE.PlaneGeometry(0.068, infeedLength), beltMat);
+  feederBelt.rotation.x = -Math.PI / 2;
+  feederBelt.position.set(FEED_X, FEED_Y, (FEED_Z0 + ENTRY_Z) / 2);
+  feederBelt.receiveShadow = true;
+  infeed.add(feederBelt);
+  for (const sx of [-1, 1]) {
+    infeed.add(box(0.006, 0.018, infeedLength, mats.alu, FEED_X + sx * 0.037, FEED_Y + 0.009, (FEED_Z0 + ENTRY_Z) / 2));
+  }
+  for (const z of [FEED_Z0, ENTRY_Z]) {
+    infeed.add(cyl(0.018, 0.018, 0.075, mats.steel, 16, FEED_X, FEED_Y - 0.018, z, { rotZ: Math.PI / 2 }));
+  }
+  for (const z of [0.08, 0.28]) {
+    infeed.add(box(0.06, 0.042, 0.05, mats.aluDark, FEED_X, B + 0.021, z));
+  }
+  g.add(infeed);
+
+  g.add(box(0.31, 0.004, 0.055, mats.alu, -0.135, B + 0.058, ENTRY_Z));
+  for (const sz of [-1, 1]) {
+    g.add(box(0.31, 0.012, 0.004, mats.alu, -0.135, B + 0.064, ENTRY_Z + sz * 0.031));
+  }
+
   const magazinePlate = new THREE.Mesh(
     new THREE.PlaneGeometry(0.2, 0.075),
     makePlateMaterial(renderer, "MAGAZINE", "9 PEÇAS")
   );
   magazinePlate.scale.setScalar(0.4);
-  magazinePlate.position.set(MAG_X - 0.123, B + 0.108, MAG_Z + 0.087);
-  magazinePlate.rotation.y = -Math.PI / 2;
+  magazinePlate.position.set(MAG_X, B + 0.105, MAG_Z + 0.146);
   g.add(magazinePlate);
   g.add(magazine);
 
@@ -1265,16 +1505,16 @@ function buildConveyorStation(mats, renderer, code) {
   for (const type of TYPES) {
     const ramp = RAMP[type];
     const z = ramp.z;
-    g.add(box(0.22, 0.006, 0.08, mats.alu, 0.245, B + 0.052, z, { rotZ: RAMP_ANGLE }));
+    g.add(box(RAMP_LEN, RAMP_THICK, 0.08, mats.alu, RAMP_X, RAMP_Y, z, { rotZ: RAMP_ANGLE }));
     for (const sz of [-1, 1]) {
       g.add(
-        box(0.22, 0.018, 0.004, mats.alu, 0.245, B + 0.062, z + sz * 0.042, {
+        box(RAMP_LEN, 0.018, 0.004, mats.alu, RAMP_X, RAMP_Y + 0.012, z + sz * 0.042, {
           rotZ: RAMP_ANGLE,
         })
       );
     }
     g.add(
-      box(0.2, 0.004, 0.005, ramp.color, 0.245, B + 0.072, z - 0.043, { rotZ: RAMP_ANGLE })
+      box(0.2, 0.004, 0.005, ramp.color, RAMP_X, RAMP_Y + 0.005, z - 0.043, { rotZ: RAMP_ANGLE })
     );
     g.add(box(0.04, 0.08, 0.09, mats.aluDark, 0.375, B + 0.04, z));
   }
@@ -1327,10 +1567,11 @@ function buildConveyorStation(mats, renderer, code) {
     );
     const led = cyl(0.0045, 0.0045, 0.006, mats.ledOff, 8, 0, 0.028, 0);
     head.add(led);
-    head.position.set(sx * 0.19, B + 0.115, SENSOR_Z);
+    const sensorX = kind === "metal" ? 0.155 : 0.19;
+    head.position.set(sx * sensorX, B + 0.115, SENSOR_Z);
     g.add(head);
-    g.add(box(0.014, 0.11, 0.014, mats.aluDark, sx * 0.19, B + 0.055, SENSOR_Z));
-    g.add(box(0.05, 0.012, 0.05, mats.aluDark, sx * 0.19, B + 0.006, SENSOR_Z));
+    g.add(box(0.014, 0.11, 0.014, mats.aluDark, sx * sensorX, B + 0.055, SENSOR_Z));
+    g.add(box(0.05, 0.012, 0.05, mats.aluDark, sx * sensorX, B + 0.006, SENSOR_Z));
     gate.leds[kind] = led;
   }
 
@@ -1349,13 +1590,14 @@ function buildConveyorStation(mats, renderer, code) {
   gate.beam = beam;
 
   const sensorLabel = (text, sub, sx) => {
-    g.add(box(0.01, 0.03, 0.01, mats.aluDark, sx * 0.19, B + 0.16, SENSOR_Z));
+    const sensorX = text === "INDUTIVO" ? 0.155 : 0.19;
+    g.add(box(0.01, 0.03, 0.01, mats.aluDark, sx * sensorX, B + 0.16, SENSOR_Z));
     const plate = new THREE.Mesh(
       new THREE.PlaneGeometry(0.2, 0.075),
       makePlateMaterial(renderer, text, sub)
     );
     plate.scale.setScalar(0.34);
-    plate.position.set(sx * 0.199, B + 0.185, SENSOR_Z);
+    plate.position.set(sx * (sensorX + 0.009), B + 0.185, SENSOR_Z);
     plate.rotation.y = (sx * Math.PI) / 2;
     g.add(plate);
   };
@@ -1394,6 +1636,8 @@ function buildConveyorStation(mats, renderer, code) {
   let beltStep = null;
   let scanKey = "";
   let hmiRef = null;
+  let transfer = null;
+  let magazineDrops = [];
 
   const SORT_TYPE = { sortMetal: "metal", sortColor: "colored", sortBlack: "black" };
   const isSort = (action) => Object.prototype.hasOwnProperty.call(SORT_TYPE, action);
@@ -1404,49 +1648,108 @@ function buildConveyorStation(mats, renderer, code) {
     hmiRef = h;
   };
 
-  function spawn(type, z) {
-    const mesh = pool.find((m) => !m.userData.inUse);
+  function spawn(type, z, existingMesh = null) {
+    const mesh = existingMesh || pool.find((m) => !m.userData.inUse);
     if (!mesh) return null;
     mesh.userData.inUse = true;
     mesh.visible = true;
     mesh.userData.setType(type);
     mesh.position.set(0, PIECE_Y, z);
-    const piece = { mesh, type, z, classified: false };
+    const piece = { mesh, type, z, classified: false, returning: false, returnDistance: 0 };
     pieces.push(piece);
     return piece;
   }
 
-  function takeMagazinePiece(type) {
+  function takeMagazinePiece(type, animate = true) {
     const stock = magazinePieces[TYPES.indexOf(type)];
-    const piece = stock.findLast((p) => p.visible);
-    if (!piece) return false;
+    const piece = stock.find((p) => p.visible);
+    if (!piece) return null;
+    const source = {
+      x: MAG_X + piece.position.x,
+      y: 0.036 + piece.position.y,
+      z: MAG_Z + piece.position.z,
+    };
     piece.visible = false;
-    return true;
+    let lowering = false;
+    for (const item of stock) {
+      if (item === piece) {
+        lowering = true;
+        continue;
+      }
+      if (!lowering || !item.visible) continue;
+      if (animate) {
+        magazineDrops.push({ piece: item, from: item.position.y, to: item.position.y - MAG_STACK_PITCH, t: 0 });
+      } else {
+        item.position.y -= MAG_STACK_PITCH;
+      }
+    }
+    return source;
   }
 
   function restoreMagazine() {
-    magazinePieces.forEach((row) => row.forEach((piece) => {
+    magazinePieces.forEach((row, rowIndex) => row.forEach((piece, col) => {
       piece.visible = true;
+      piece.position.set(0, MAG_PIECE_Y + col * MAG_STACK_PITCH, (rowIndex - 1) * MAG_PITCH);
     }));
   }
 
   function feed() {
-    if (fed >= LOT_SIZE) return;
-    if (pieces.length >= MAX_PIECES) return;
+    if (fed >= LOT_SIZE || transfer) return;
+    if (pieces.length >= MAX_PIECES - 1) return;
     if (pieces.some((p) => p.z > ENTRY_Z - 0.12)) return;
     const type = TYPES[feedIndex % TYPES.length];
-    if (!takeMagazinePiece(type)) return;
-    spawn(type, ENTRY_Z);
+    const mesh = pool.find((m) => !m.userData.inUse);
+    if (!mesh) return;
+    const source = takeMagazinePiece(type);
+    if (!source) return;
+    mesh.userData.inUse = true;
+    mesh.visible = true;
+    mesh.userData.setType(type);
+    mesh.position.set(source.x, source.y, source.z);
+    const row = TYPES.indexOf(type);
+    const z = MAG_Z + (row - 1) * MAG_PITCH;
+    const feederY = FEED_Y - B + 0.011;
+    const curve = new THREE.CatmullRomCurve3([
+      new THREE.Vector3(source.x, source.y, source.z),
+      new THREE.Vector3(FEED_X, feederY, z),
+      new THREE.Vector3(FEED_X, feederY, ENTRY_Z - 0.03),
+      new THREE.Vector3(-0.08, PIECE_Y, ENTRY_Z),
+      new THREE.Vector3(0, PIECE_Y, ENTRY_Z),
+    ], false, "centripetal");
+    transfer = { type, mesh, curve, length: curve.getLength(), distance: 0 };
     feedIndex += 1;
+    sinceFeed = 0;
+    hmiRef?.draw(`ALIMENTANDO · ${TYPE_LABEL[type]}`, "running");
+  }
+
+  function advanceTransfer(delta) {
+    const travel = Math.abs(delta);
+    if (!travel) return;
+    const seconds = travel / 0.25;
+    magazineDrops = magazineDrops.filter((drop) => {
+      drop.t += seconds;
+      const k = easeInOut(clamp01(drop.t / 0.14));
+      drop.piece.position.y = drop.from + (drop.to - drop.from) * k;
+      return drop.t < 0.14;
+    });
+    if (!transfer) return;
+    transfer.distance = Math.min(transfer.length, transfer.distance + travel);
+    const k = transfer.distance / transfer.length;
+    transfer.mesh.position.copy(transfer.curve.getPointAt(k));
+    if (k < 1) return;
+    const { type, mesh } = transfer;
+    transfer = null;
+    spawn(type, ENTRY_Z, mesh);
     fed += 1;
     sinceFeed = 0;
+    updateSensor();
   }
 
   const lotDone = () => fed >= LOT_SIZE && pieces.length === 0;
 
   function updateSensor() {
     const active =
-      pieces.find((p) => Math.abs(p.z - SENSOR_Z) <= SENSOR_HALF) || null;
+      pieces.find((p) => !p.returning && Math.abs(p.z - SENSOR_Z) <= SENSOR_HALF) || null;
     const metalOn = !!active && active.type === "metal";
     const reflectOn = !!active && active.type !== "black";
     gate.leds.metal.material = metalOn ? mats.ledBlue : mats.ledOff;
@@ -1464,20 +1767,45 @@ function buildConveyorStation(mats, renderer, code) {
     }
   }
 
+  function advanceReturn(piece, travel) {
+    piece.returnDistance = Math.max(0, Math.min(returnLength, piece.returnDistance + travel));
+    const point = returnCurve.getPointAt(piece.returnDistance / returnLength);
+    piece.z = point.z;
+    piece.mesh.position.y = point.y;
+    piece.mesh.position.z = point.z;
+    if (piece.returnDistance === 0 || piece.returnDistance === returnLength) {
+      const atEntry = piece.returnDistance === returnLength;
+      piece.returning = false;
+      piece.z = atEntry ? ENTRY_Z : BELT_MIN;
+      piece.mesh.position.y = PIECE_Y;
+      piece.mesh.position.z = piece.z;
+    }
+  }
+
   function moveBelt(delta) {
     if (!delta) return;
     beltOffset += delta;
     sinceFeed = Math.max(0, sinceFeed + delta);
     for (let i = pieces.length - 1; i >= 0; i--) {
       const p = pieces[i];
+      if (p.returning) {
+        advanceReturn(p, delta);
+        continue;
+      }
       p.z -= delta;
       if (p.z > ENTRY_Z) p.z = ENTRY_Z;
       if (p.z < BELT_MIN) {
-        // closed-loop belt: pieces that were not diverted keep running and return at the infeed
-        p.z += BELT_LOOP;
+        const overflow = BELT_MIN - p.z;
+        p.z = BELT_MIN;
+        p.returning = true;
+        p.returnDistance = 0;
+        advanceReturn(p, overflow);
+      } else {
+        p.mesh.position.y = PIECE_Y;
+        p.mesh.position.z = p.z;
       }
-      p.mesh.position.z = p.z;
     }
+    advanceTransfer(delta);
     if (sinceFeed >= FEED_GAP) feed();
     updateSensor();
     tex.offset.y = -(beltOffset / 0.14) % 1;
@@ -1486,14 +1814,14 @@ function buildConveyorStation(mats, renderer, code) {
   function divert(piece, type) {
     const bin = bins[type];
     bin.push(piece);
-    piece.mesh.position.set(BIN_X, BIN_Y + (bin.length - 1) * 0.022, RAMP[type].z);
+    piece.mesh.position.set(BIN_X, BIN_Y + (bin.length - 1) * SORT_PIECE_PITCH, RAMP[type].z);
     if (bin.length > BIN_CAP) {
       const old = bin.shift();
       old.mesh.visible = false;
       old.mesh.userData.inUse = false;
     }
     bin.forEach((p, i) => {
-      p.mesh.position.set(BIN_X, BIN_Y + i * 0.022, RAMP[type].z);
+      p.mesh.position.set(BIN_X, BIN_Y + i * SORT_PIECE_PITCH, RAMP[type].z);
     });
     const idx = pieces.indexOf(piece);
     if (idx >= 0) pieces.splice(idx, 1);
@@ -1505,7 +1833,7 @@ function buildConveyorStation(mats, renderer, code) {
     let best = SORT_WINDOW;
     // a piece already within the paddle's reach is caught even if slightly past the ramp
     for (const p of pieces) {
-      if (p.type !== type) continue;
+      if (p.returning || p.type !== type) continue;
       const d = Math.abs(p.z - zRamp);
       if (d <= best) {
         best = d;
@@ -1515,7 +1843,7 @@ function buildConveyorStation(mats, renderer, code) {
     if (target) return target;
     best = Infinity;
     for (const p of pieces) {
-      if (p.type !== type) continue;
+      if (p.returning || p.type !== type) continue;
       const d = p.z - zRamp;
       if (d > SORT_WINDOW && d < best) {
         best = d;
@@ -1595,12 +1923,12 @@ function buildConveyorStation(mats, renderer, code) {
       const slide = clamp01((pushP - 0.36) / 0.36);
       if (slide > 0) {
         const e = easeInOut(slide);
-        target.mesh.position.x = 0.12 + e * (BIN_X - 0.12);
-        target.mesh.position.y = PIECE_Y - e * (PIECE_Y - BIN_Y);
+        target.mesh.position.x = RAMP_ENTRY_X + e * (BIN_X - RAMP_ENTRY_X);
+        target.mesh.position.y = rampSupportY(target.mesh.position.x) + SORT_PIECE_H / 2;
         target.mesh.position.z = RAMP[sort.type].z;
         target.z = RAMP[sort.type].z;
       } else {
-        target.mesh.position.x = k * 0.12;
+        target.mesh.position.x = k * RAMP_ENTRY_X;
       }
     }
   }
@@ -1618,7 +1946,13 @@ function buildConveyorStation(mats, renderer, code) {
       p.mesh.visible = false;
       p.mesh.userData.inUse = false;
     });
+    if (transfer) {
+      transfer.mesh.visible = false;
+      transfer.mesh.userData.inUse = false;
+      transfer = null;
+    }
     pieces = [];
+    magazineDrops = [];
     bins = { metal: [], colored: [], black: [] };
     beltOffset = 0;
     sinceFeed = 0;
@@ -1632,7 +1966,7 @@ function buildConveyorStation(mats, renderer, code) {
     gate.leds.color.material = mats.ledOff;
     gate.beam.visible = false;
     restoreMagazine();
-    takeMagazinePiece("metal");
+    takeMagazinePiece("metal", false);
     spawn("metal", ENTRY_Z);
     updateSensor();
   }
@@ -1867,9 +2201,9 @@ const INFO = {
   conveyor: {
     name: "Estação de Transferência",
     type: "Sensoriamento",
-    desc: "Esteira com triagem por material e magazine lateral de nove peças: três metálicas, três plásticas coloridas e três pretas. Um sensor indutivo identifica o metal e um sensor óptico reflexivo distingue o plástico colorido do preto. Três desviadores laterais encaminham cada peça para a rampa correspondente.",
-    tech: ["Magazine de 9 peças", "Esteira transportadora", "Sensor indutivo", "Sensor óptico reflexivo", "3 cilindros de desvio", "3 rampas de triagem"],
-    tip: "O magazine lateral começa com nove peças (3 de cada tipo) e o estoque visível diminui a cada alimentação da esteira. A leitura é: indutivo ligado = metálica; indutivo desligado e óptico ligado = plástico colorida; os dois desligados = plástico preta. Cada bloco de separação alinha a peça com o cilindro e a desvia. As peças que não são desviadas voltam para o início da esteira. Quando todas forem separadas, o programa para com LOTE CONCLUÍDO; o reset repõe o magazine.",
+    desc: "Esteira com triagem por material e três magazines tubulares laterais: três metálicas, três plásticas coloridas e três pretas. As peças saem uma por vez pela base, percorrem um alimentador lateral e entram na esteira. Um sensor indutivo identifica o metal e um sensor óptico reflexivo distingue o plástico colorido do preto. Três desviadores laterais encaminham cada peça para a rampa correspondente.",
+    tech: ["3 magazines tubulares", "Alimentador lateral", "Esteira transportadora", "Sensor indutivo", "Sensor óptico reflexivo", "3 cilindros de desvio", "3 rampas de triagem"],
+    tip: "Cada tubo libera uma peça por vez pela base; as pilhas descem um nível e a peça percorre o alimentador lateral até a esteira. O magazine começa com nove peças (3 de cada tipo) e o estoque visível diminui a cada alimentação. A leitura é: indutivo ligado = metálica; indutivo desligado e óptico ligado = plástico colorida; os dois desligados = plástico preta. Cada bloco de separação alinha a peça com o cilindro e a desvia. As peças que não são desviadas voltam para o início da esteira. Quando todas forem separadas, o programa para com LOTE CONCLUÍDO; o reset repõe o magazine.",
   },
 };
 
