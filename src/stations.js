@@ -804,6 +804,10 @@ function buildAssembly(mats, renderer, code) {
   const magX = px - 0.14;
   const baseMagX = -0.25;
   const baseMagZ = -0.16;
+  const BASE_MAG_Y = B + 0.04;
+  const BASE_MAG_PITCH = 0.045;
+  const CAP_MAG_Y = B + 0.14;
+  const CAP_MAG_PITCH = 0.022;
   const rb = (w, h, d, r, mat, x = 0, y = 0, z = 0) => {
     const mesh = new THREE.Mesh(new RoundedBoxGeometry(w, h, d, 3, r), mat);
     mesh.position.set(x, y, z);
@@ -880,18 +884,18 @@ function buildAssembly(mats, renderer, code) {
 
   const basePart = createAssemblyBase(mats);
   basePart.name = "assembly-magazine-base-1";
-  basePart.position.set(baseMagX, B + 0.04, baseMagZ);
+  basePart.position.set(baseMagX, BASE_MAG_Y, baseMagZ);
   g.add(basePart);
 
   const magazineBases = [basePart];
   for (let i = 1; i < 5; i++) {
     const base = createAssemblyBase(mats);
     base.name = `assembly-magazine-base-${i + 1}`;
-    base.position.set(baseMagX, B + 0.04 + i * 0.045, baseMagZ);
+    base.position.set(baseMagX, BASE_MAG_Y + i * BASE_MAG_PITCH, baseMagZ);
     magazineBases.push(base);
     g.add(base);
   }
-  g.add(box(0.115, 0.008, 0.115, mats.aluDark, baseMagX, B + 0.02, baseMagZ));
+  g.add(box(0.115, 0.008, 0.115, mats.aluDark, baseMagX, BASE_MAG_Y - 0.004, baseMagZ));
   g.add(box(0.11, 0.24, 0.004, mats.glassClear, baseMagX, B + 0.14, baseMagZ - 0.053));
   for (const sx of [-1, 1]) {
     g.add(cyl(0.003, 0.003, 0.25, mats.chrome, 12, baseMagX + sx * 0.057, B + 0.145, baseMagZ + 0.054));
@@ -951,18 +955,18 @@ function buildAssembly(mats, renderer, code) {
 
   const capPart = createAssemblyCap(mats);
   capPart.name = "assembly-magazine-cap-1";
-  capPart.position.set(magX, B + 0.14, feedZ);
+  capPart.position.set(magX, CAP_MAG_Y, feedZ);
   g.add(capPart);
 
   const magazineCaps = [capPart];
   for (let i = 1; i < 5; i++) {
     const cap = createAssemblyCap(mats);
     cap.name = `assembly-magazine-cap-${i + 1}`;
-    cap.position.set(magX, B + 0.14 + i * 0.022, feedZ);
+    cap.position.set(magX, CAP_MAG_Y + i * CAP_MAG_PITCH, feedZ);
     magazineCaps.push(cap);
     g.add(cap);
   }
-  g.add(box(0.09, 0.008, 0.085, mats.aluDark, magX, B + 0.13, feedZ));
+  g.add(box(0.09, 0.008, 0.085, mats.aluDark, magX, CAP_MAG_Y - 0.004, feedZ));
   g.add(box(0.004, 0.13, 0.085, mats.glassClear, magX - 0.047, B + 0.2, feedZ));
   g.add(box(0.09, 0.13, 0.004, mats.glassClear, magX, B + 0.2, feedZ - 0.041));
   g.add(box(0.09, 0.13, 0.004, mats.glassClear, magX, B + 0.2, feedZ + 0.041));
@@ -1056,10 +1060,10 @@ function buildAssembly(mats, renderer, code) {
     if (cycles >= magazineBases.length || cycles >= magazineCaps.length) return false;
     activeBase = magazineBases[cycles];
     activeBase.visible = true;
-    activeBase.position.set(baseMagX, B + 0.04, baseMagZ);
+    activeBase.position.set(baseMagX, BASE_MAG_Y, baseMagZ);
     activeCap = magazineCaps[cycles];
     activeCap.visible = true;
-    activeCap.position.set(magX, B + 0.14, feedZ);
+    activeCap.position.set(magX, CAP_MAG_Y, feedZ);
     stage = -1;
     return true;
   }
@@ -1102,6 +1106,22 @@ function buildAssembly(mats, renderer, code) {
       const baseEject = seg(p, 0.82, 0.94);
       const capDrop = seg(p, 0.32, 0.46) * 0.057 + pressMove * 0.006;
       const capSlide = seg(p, 0.46, 0.6);
+      const baseStackDrop = seg(p, 0.12, 0.24);
+      const capStackDrop = seg(p, 0.38, 0.5);
+      for (let i = cycles + 1; i < magazineBases.length; i++) {
+        magazineBases[i].position.set(
+          baseMagX,
+          BASE_MAG_Y + (i - cycles - baseStackDrop) * BASE_MAG_PITCH,
+          baseMagZ
+        );
+      }
+      for (let i = cycles + 1; i < magazineCaps.length; i++) {
+        magazineCaps[i].position.set(
+          magX,
+          CAP_MAG_Y + (i - cycles - capStackDrop) * CAP_MAG_PITCH,
+          feedZ
+        );
+      }
       baseFeedX.setExtension(baseFeedXExtension);
       baseFeedZ.setExtension(baseFeedZExtension);
       basePusherX.position.x = baseMagX - 0.052 + baseFeedXExtension * 0.27;
@@ -1118,12 +1138,12 @@ function buildAssembly(mats, renderer, code) {
       shuttle.position.z = feedZ - shuttleMove * (feedZ - pressZ);
       activeCap.position.set(
         magX + capTransfer * (px - magX) - baseEject * 0.14,
-        B + 0.14 - capDrop,
+        CAP_MAG_Y - capDrop,
         feedZ - capSlide * (feedZ - pressZ)
       );
       activeBase.position.set(
         baseMagX + baseMoveX * (px - baseMagX) - baseEject * 0.14,
-        B + 0.04,
+        BASE_MAG_Y,
         baseMagZ + baseMoveZ * (pressZ - baseMagZ)
       );
       paddle.position.x = px + 0.072 - eject * 0.13;
@@ -1156,10 +1176,10 @@ function buildAssembly(mats, renderer, code) {
       activeCap = null;
       cycles += 1;
       for (let i = cycles; i < magazineBases.length; i++) {
-        magazineBases[i].position.set(baseMagX, B + 0.04 + (i - cycles) * 0.045, baseMagZ);
+        magazineBases[i].position.set(baseMagX, BASE_MAG_Y + (i - cycles) * BASE_MAG_PITCH, baseMagZ);
       }
       for (let i = cycles; i < magazineCaps.length; i++) {
-        magazineCaps[i].position.set(magX, B + 0.14 + (i - cycles) * 0.022, feedZ);
+        magazineCaps[i].position.set(magX, CAP_MAG_Y + (i - cycles) * CAP_MAG_PITCH, feedZ);
       }
       paddle.position.x = px + 0.072;
       refreshSensors();
@@ -1181,11 +1201,11 @@ function buildAssembly(mats, renderer, code) {
       pForSensorActive = false;
       magazineBases.forEach((base, i) => {
         base.visible = true;
-        base.position.set(baseMagX, B + 0.04 + i * 0.045, baseMagZ);
+        base.position.set(baseMagX, BASE_MAG_Y + i * BASE_MAG_PITCH, baseMagZ);
       });
       magazineCaps.forEach((cap, i) => {
         cap.visible = true;
-        cap.position.set(magX, B + 0.14 + i * 0.022, feedZ);
+        cap.position.set(magX, CAP_MAG_Y + i * CAP_MAG_PITCH, feedZ);
       });
       press.setExtension(0);
       transfer.setExtension(0);

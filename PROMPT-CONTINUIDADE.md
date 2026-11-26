@@ -260,10 +260,29 @@ Validação das MPS-01 e MPS-07:
 - Capturas headless confirmaram a abertura lateral, a ponte de transferência, os roletes, o FRL, o sensor, o cabeamento organizado e a folga entre as peças nas duas máquinas.
 - Não há erros de console da aplicação; restam somente os avisos preexistentes do `RoomEnvironment`.
 
+### 9. Apoio e descida dos magazines da montadora
+
+O pedido “está bugado”, com imagem da MPS-04, foi atendido em `buildAssembly`, em `src/stations.js`:
+
+- As prateleiras dos magazines de bases e tampas foram elevadas para apoiar a face inferior das peças, sem suspensão aparente.
+- As alturas iniciais foram unificadas em `BASE_MAG_Y = 0,076 m` e `CAP_MAG_Y = 0,176 m`, reutilizadas na criação, alimentação, animação, commit e reset.
+- As pilhas remanescentes agora descem continuamente durante o ciclo: as bases entre `p = 0,12` e `p = 0,24`, e as tampas entre `p = 0,38` e `p = 0,50`.
+- O commit preserva a posição já alcançada pela animação, eliminando o salto anterior no fim do ciclo.
+
+Validação das MPS-04 e MPS-09 após a correção:
+
+- A base inferior e a tampa inferior tocam as prateleiras com folga medida de zero, sem penetração.
+- A segunda base e a segunda tampa desceram gradualmente durante o primeiro ciclo, sem reposicionamento instantâneo.
+- A diferença de posição entre `p = 1` e o commit foi zero nos cinco ciclos das duas máquinas.
+- MPS-04 e MPS-09 concluíram cinco ciclos, criaram cinco peças finalizadas e o sexto comando retornou `MAGAZINE VAZIO`.
+- O reset restaurou cinco bases e cinco tampas nas alturas iniciais.
+- A captura close-up confirmou as pilhas apoiadas e a aparência visual da montadora.
+- Não há erros de console da aplicação; o aviso preexistente do `RoomEnvironment` permanece não fatal.
+
 ## Estado atual
 
 - `npm run build` foi executado com sucesso após a validação final.
-- Bundle final: `dist/assets/index-DEGLn_aU.js`.
+- Bundle final: `dist/assets/index-B0f7Bc_0.js`.
 - O Vite mantém apenas o aviso não fatal de chunk maior que 500 kB.
 - Não foi criado nenhum commit novo nesta sessão.
 - O servidor de desenvolvimento foi reiniciado e está disponível em `http://127.0.0.1:5173`.
